@@ -261,56 +261,6 @@
             font-size: 20px;
             outline: none;
         }
-        .input-area .upload-btn-group {
-            display: flex; /* 按钮之间也用 flex 布局 */
-            gap: 5px;       /* 按钮之间的固定间距 */
-        }
-
-        /* 3. 统一所有功能按钮（包括左侧三个和右侧一个）的默认样式 */
-        .upload-btn, .send-btn {
-            background: none; /* 清除默认背景 */
-            border: none;     /* 清除默认边框 */
-            cursor: pointer;  /* 鼠标变成小手 */
-            padding: 8px;      /* 增加点击区域 */
-            transition: all 0.2s ease; /* 过渡动画 */
-        }
-        
-        /* 左侧功能按钮的具体样式（📷, 🎤, 🔊）*/
-        .upload-btn {
-            font-size: 20px; /* 增大 Emoji 图标 */
-        }
-
-        /* 4. ✅ 魔法第二步：输入框自动占据剩余所有空间 */
-        #userInput {
-            /* 👇 ✅ 核心：flex: 1 告诉浏览器“这个元素要填满所有没被按钮占据的空间” */
-            flex: 1; 
-            
-            height: 36px;     /* 输入框高度 */
-            border: 1px solid #ddd; /* 淡淡的边框 */
-            border-radius: 18px;    /* 圆角 */
-            padding: 0 15px;  /* 内部留白 */
-            margin: 0 10px;   /* 两侧留白，与按钮分开 */
-            font-size: 14px;  /* 文字大小 */
-            outline: none;    /* 清除聚焦时的默认蓝色边框 */
-            box-sizing: border-box;
-        }
-
-        /* 5. 发送按钮的具体样式（文字按钮）*/
-        .send-btn {
-            color: #fff;       /* 白色文字 */
-            
-            /* 👇 ✅ 关键：严禁文字换行，确保“发送”两个字始终在一起 */
-            white-space: nowrap; 
-            
-            background-color: var(--btn-bg); /* 使用我们之前定义的情绪色调变量 */
-            padding: 8px 15px; /* 增加按钮宽度 */
-            border-radius: 18px; /* 圆角 */
-            font-size: 14px;    /* 文字大小 */
-        }
-        
-        .send-btn:hover {
-            background-color: var(--btn-hover); /* 悬停效果 */
-        }
 
         button.upload-btn:hover {
             background-color: #e4e6e9;
@@ -368,15 +318,13 @@
         </div>
 
     <div class="input-area">
-        <div class="upload-btn-group">
-            <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="previewImage()">
-            <button class="upload-btn" onclick="document.getElementById('imageInput').click()">📷</button>
-            <button class="upload-btn" id="micBtn" onclick="toggleVoice()">🎤</button>
-            <button class="upload-btn" id="speakerBtn" onclick="toggleVoiceOutput()">🔊</button>
-        </div>
-        
+        <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="previewImage()">
+        <button class="upload-btn" onclick="document.getElementById('imageInput').click()">📷</button>
+        <button class="upload-btn" id="micBtn" onclick="toggleVoice()" title="点击开始/停止说话">🎤</button>
+    
+        <button class="upload-btn" id="speakerBtn" onclick="toggleVoiceOutput()" title="开启/关闭语音播报">🔊</button>
+    
         <input type="text" id="userInput" placeholder="写下你的情绪，或发张照片..." onkeypress="handleKeyPress(event)">
-        
         <button class="send-btn" onclick="sendMessage()">发送</button>
     </div>
     </div>
@@ -578,7 +526,7 @@
         chatBox.scrollTop = chatBox.scrollHeight;
 
         try {
-            const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/chat', {
+            const response = await fetch('http://127.0.0.1:8000/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -608,7 +556,7 @@
 
         try {
             // 1. 向后端索要深度图
-            const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/generate_depth', {
+            const response = await fetch('http://127.0.0.1:8000/generate_depth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ image_url: originalBase64 })
@@ -695,7 +643,7 @@
         chatBox.scrollTop = chatBox.scrollHeight;
 
         try {
-            const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/summary', {
+            const response = await fetch('http://127.0.0.1:8000/summary', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ chat_history: fullChatHistory })

@@ -74,7 +74,35 @@ def chat_with_ai(message: UserMessage):
         print(f"❌ 发生致命错误: {e}")
         # 将真实报错信息直接返回给前端显示，彻底告别“盲盒报错”
         return {"reply": f"【系统提示】模型调用失败，报错详情：{e}"}
+# 1. 定义接收前端数据的格式
+class DepthRequest(BaseModel):
+    image_url: str  # 接收前端传来的 base64 图片
 
+# 2. 深度图生成接口
+@app.post("/generate_depth")
+async def generate_depth(request: DepthRequest):
+    try:
+        print("🎨 收到图片，正在施展空间魔法 (生成深度图)...")
+        # 1. 把前端传来的乱码 (base64) 重新变回真正的图片
+        header, encoded = request.image_url.split(",", 1)
+        image_data = base64.b64decode(encoded)
+        original_image = Image.open(io.BytesIO(image_data)).convert("RGB")
+        
+        # 2. 送进 MiDaS 模型进行预测
+        predictions = depth_estimator(original_image)
+        depth_image = predictions["depth"]
+        
+        # 3. 把生成的黑白深度图重新打包成 base64 发给前端
+        buffered = io.BytesIO()
+        depth_image.save(buffered, format="PNG")
+        depth_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        
+        print("✨ 深度图生成完毕，已返回给前端！")
+        return {"depth_map": f"data:image/png;base64,{depth_base64}"}
+        
+    except Exception as e:
+        print(f"❌ 深度图生成失败: {e}")
+        return {"error": str(e)}
 @app.post("/summary")
 def generate_summary(request: SummaryRequest):
     try:

@@ -368,15 +368,13 @@
         </div>
 
     <div class="input-area">
-        <div class="upload-btn-group">
-            <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="previewImage()">
-            <button class="upload-btn" onclick="document.getElementById('imageInput').click()">📷</button>
-            <button class="upload-btn" id="micBtn" onclick="toggleVoice()">🎤</button>
-            <button class="upload-btn" id="speakerBtn" onclick="toggleVoiceOutput()">🔊</button>
-        </div>
-        
+        <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="previewImage()">
+        <button class="upload-btn" onclick="document.getElementById('imageInput').click()">📷</button>
+        <button class="upload-btn" id="micBtn" onclick="toggleVoice()" title="点击开始/停止说话">🎤</button>
+    
+        <button class="upload-btn" id="speakerBtn" onclick="toggleVoiceOutput()" title="开启/关闭语音播报">🔊</button>
+    
         <input type="text" id="userInput" placeholder="写下你的情绪，或发张照片..." onkeypress="handleKeyPress(event)">
-        
         <button class="send-btn" onclick="sendMessage()">发送</button>
     </div>
     </div>
@@ -578,7 +576,7 @@
         chatBox.scrollTop = chatBox.scrollHeight;
 
         try {
-            const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/chat', {
+            const response = await fetch('http://127.0.0.1:8000/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -608,7 +606,7 @@
 
         try {
             // 1. 向后端索要深度图
-            const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/generate_depth', {
+            const response = await fetch('http://127.0.0.1:8000/generate_depth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ image_url: originalBase64 })
@@ -695,7 +693,7 @@
         chatBox.scrollTop = chatBox.scrollHeight;
 
         try {
-            const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/summary', {
+            const response = await fetch('http://127.0.0.1:8000/summary', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ chat_history: fullChatHistory })
