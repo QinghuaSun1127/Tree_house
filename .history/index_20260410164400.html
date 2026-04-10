@@ -246,17 +246,9 @@
             outline: none;
             box-sizing: border-box;
         }
-           .send-btn {
-            flex-shrink: 0; /* 🔑 魔法3：发送按钮死死钉在右侧，绝不让步 */
-            white-space: nowrap; /* 严禁“发送”两个字换行 */
-            background-color: var(--btn-bg);
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 18px;
-            font-size: 14px;
-            border: none;
-            cursor: pointer;
-        }
+            .send-btn {
+                padding: 8px 12px; /* 确保发送按钮完整显示 */
+            }
         }
         input[type="text"] {
             flex: 1;

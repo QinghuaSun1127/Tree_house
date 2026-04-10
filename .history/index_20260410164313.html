@@ -226,37 +226,19 @@
                 padding: 0 5px; /* 缩小两侧大留白 */
             }
             .upload-btn-group {
-            display: flex;
-            gap: 2px;
-            flex-shrink: 0; /* 🔑 魔法1：左侧图标组绝不缩小，也不被挤掉 */
-        }
+                gap: 2px; /* 缩小左侧三个按钮的间距 */
+            }
             .upload-btn {
                 padding: 5px; /* 缩小按钮本身的内边距 */
                 font-size: 18px; /* 稍微缩小图标 */
             }
             #userInput {
-            flex: 1; /* 占据剩余全部空间 */
-            min-width: 0; /* 🔑 魔法2：打破输入框的傲慢，强制它必须缩短让出空间 */
-            height: 36px;
-            border: 1px solid #ddd;
-            border-radius: 18px;
-            padding: 0 10px;
-            margin: 0 6px; /* 缩小和两边按钮的间距 */
-            font-size: 14px;
-            outline: none;
-            box-sizing: border-box;
-        }
-           .send-btn {
-            flex-shrink: 0; /* 🔑 魔法3：发送按钮死死钉在右侧，绝不让步 */
-            white-space: nowrap; /* 严禁“发送”两个字换行 */
-            background-color: var(--btn-bg);
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 18px;
-            font-size: 14px;
-            border: none;
-            cursor: pointer;
-        }
+                margin: 0 5px; /* 缩小输入框两边的推力 */
+                padding: 0 10px;
+            }
+            .send-btn {
+                padding: 8px 12px; /* 确保发送按钮完整显示 */
+            }
         }
         input[type="text"] {
             flex: 1;
