@@ -155,7 +155,6 @@
             border-radius: 8px;
             overflow: hidden;
             cursor: crosshair;
-            touch-action: none; /* ✅ 新增：防止触摸照片时页面跟着乱滚 */
             
             /* ✅ 最大宽度限制，让高度自动按比例适配 */
             max-width: 260px;
@@ -225,26 +224,7 @@
             z-index: 1000;   /* 确保在最顶层 */
             box-sizing: border-box; /* ✅ 关键：确保 padding 不会把宽度撑大 */
         }
-        /* === 移动端响应式适配 (拯救被挤掉的按钮) === */
-        @media (max-width: 400px) {
-            .input-area {
-                padding: 0 5px; /* 缩小两侧大留白 */
-            }
-            .upload-btn-group {
-                gap: 2px; /* 缩小左侧三个按钮的间距 */
-            }
-            .upload-btn {
-                padding: 5px; /* 缩小按钮本身的内边距 */
-                font-size: 18px; /* 稍微缩小图标 */
-            }
-            #userInput {
-                margin: 0 5px; /* 缩小输入框两边的推力 */
-                padding: 0 10px;
-            }
-            .send-btn {
-                padding: 8px 12px; /* 确保发送按钮完整显示 */
-            }
-        }
+        
         input[type="text"] {
             flex: 1;
             padding: 10px 15px;
@@ -403,22 +383,6 @@
     </div>
 
     <script>
-        // === 破解移动端音频限制：静音解锁引擎 ===
-            let isAudioUnlocked = false;
-
-            // 监听用户的第一次触摸或点击
-            document.body.addEventListener('touchstart', unlockAudio, { once: true });
-            document.body.addEventListener('click', unlockAudio, { once: true });
-
-            function unlockAudio() {
-                if (!isAudioUnlocked && 'speechSynthesis' in window) {
-                    // 悄悄播放一段空文本，强行唤醒 iOS 的音频引擎
-                    const unlockUtterance = new SpeechSynthesisUtterance('');
-                    window.speechSynthesis.speak(unlockUtterance);
-                    isAudioUnlocked = true;
-                    console.log("🔓 移动端音频引擎已强行解锁！");
-                }
-            }
     // === 1. 全局变量区 ===
     let fullChatHistory = "";
     let currentImageDataUrl = null;
@@ -707,48 +671,10 @@
                 displacementFilter.scale.y = -y * 15;
             });
 
-           container.addEventListener('mousemove', (e) => {
-                const rect = container.getBoundingClientRect();
-                const x = ((e.clientX - rect.left) / rect.width - 0.5) * 2;
-                const y = ((e.clientY - rect.top) / rect.height - 0.5) * 2;
-                displacementFilter.scale.x = -x * 15;
-                displacementFilter.scale.y = -y * 15;
-            });
-
-            // 2. 增加手机端的手指触摸滑动
-            container.addEventListener('touchmove', (e) => {
-                e.preventDefault(); // 极其重要：防止整个网页跟着滑走
-                const rect = container.getBoundingClientRect();
-                const touch = e.touches[0]; // 获取第一根手指
-                const x = ((touch.clientX - rect.left) / rect.width - 0.5) * 2;
-                const y = ((touch.clientY - rect.top) / rect.height - 0.5) * 2;
-                displacementFilter.scale.x = -x * 15;
-                displacementFilter.scale.y = -y * 15;
-            });
-
-            // 鼠标和手指离开时，图像缓慢复位
-            const resetFilter = () => {
+            container.addEventListener('mouseleave', () => {
                 displacementFilter.scale.x = 0;
                 displacementFilter.scale.y = 0;
-            };
-            container.addEventListener('mouseleave', resetFilter);
-            container.addEventListener('touchend', resetFilter);
-
-            // 3. 终极大招：读取手机陀螺仪 (裸眼 3D)
-            if (window.DeviceOrientationEvent) {
-                window.addEventListener('deviceorientation', (e) => {
-                    // e.gamma 代表手机左右倾斜度，e.beta 代表前后倾斜度
-                    if (e.gamma !== null && e.beta !== null) {
-                        // 将重力倾斜角度限制并映射到视差系数上
-                        const x = Math.min(Math.max(e.gamma / 30, -1), 1);
-                        // 减去 45 度是因为人们通常倾斜 45 度拿着手机
-                        const y = Math.min(Math.max((e.beta - 45) / 30, -1), 1);
-
-                        displacementFilter.scale.x = -x * 20; // 陀螺仪的幅度可以调大一点
-                        displacementFilter.scale.y = -y * 20;
-                    }
-                });
-            }
+            });
 
         } catch (err) {
             console.error("❌ 3D 渲染失败:", err);

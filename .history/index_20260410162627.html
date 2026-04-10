@@ -155,7 +155,7 @@
             border-radius: 8px;
             overflow: hidden;
             cursor: crosshair;
-            touch-action: none; /* ✅ 新增：防止触摸照片时页面跟着乱滚 */
+            
             
             /* ✅ 最大宽度限制，让高度自动按比例适配 */
             max-width: 260px;
@@ -707,48 +707,10 @@
                 displacementFilter.scale.y = -y * 15;
             });
 
-           container.addEventListener('mousemove', (e) => {
-                const rect = container.getBoundingClientRect();
-                const x = ((e.clientX - rect.left) / rect.width - 0.5) * 2;
-                const y = ((e.clientY - rect.top) / rect.height - 0.5) * 2;
-                displacementFilter.scale.x = -x * 15;
-                displacementFilter.scale.y = -y * 15;
-            });
-
-            // 2. 增加手机端的手指触摸滑动
-            container.addEventListener('touchmove', (e) => {
-                e.preventDefault(); // 极其重要：防止整个网页跟着滑走
-                const rect = container.getBoundingClientRect();
-                const touch = e.touches[0]; // 获取第一根手指
-                const x = ((touch.clientX - rect.left) / rect.width - 0.5) * 2;
-                const y = ((touch.clientY - rect.top) / rect.height - 0.5) * 2;
-                displacementFilter.scale.x = -x * 15;
-                displacementFilter.scale.y = -y * 15;
-            });
-
-            // 鼠标和手指离开时，图像缓慢复位
-            const resetFilter = () => {
+            container.addEventListener('mouseleave', () => {
                 displacementFilter.scale.x = 0;
                 displacementFilter.scale.y = 0;
-            };
-            container.addEventListener('mouseleave', resetFilter);
-            container.addEventListener('touchend', resetFilter);
-
-            // 3. 终极大招：读取手机陀螺仪 (裸眼 3D)
-            if (window.DeviceOrientationEvent) {
-                window.addEventListener('deviceorientation', (e) => {
-                    // e.gamma 代表手机左右倾斜度，e.beta 代表前后倾斜度
-                    if (e.gamma !== null && e.beta !== null) {
-                        // 将重力倾斜角度限制并映射到视差系数上
-                        const x = Math.min(Math.max(e.gamma / 30, -1), 1);
-                        // 减去 45 度是因为人们通常倾斜 45 度拿着手机
-                        const y = Math.min(Math.max((e.beta - 45) / 30, -1), 1);
-
-                        displacementFilter.scale.x = -x * 20; // 陀螺仪的幅度可以调大一点
-                        displacementFilter.scale.y = -y * 20;
-                    }
-                });
-            }
+            });
 
         } catch (err) {
             console.error("❌ 3D 渲染失败:", err);
