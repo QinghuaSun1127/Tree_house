@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 树洞伴侣</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 400px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 80vh;
+        }
+
+        .chat-header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+        }
+
+        .summary-btn {
+            background-color: white;
+            color: #4CAF50;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+
+        .summary-btn:hover {
+            background-color: #f0f0f0;
+        }
+
+        .chat-box {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background-color: #fafafa;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 10px 15px;
+            border-radius: 20px;
+            line-height: 1.4;
+            font-size: 0.95em;
+        }
+
+        .user-message {
+            background-color: #dcf8c6;
+            align-self: flex-end;
+            border-bottom-right-radius: 5px;
+        }
+
+        .ai-message {
+            background-color: #ffffff;
+            border: 1px solid #eee;
+            align-self: flex-start;
+            border-bottom-left-radius: 5px;
+        }
+
+        .summary-message {
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            align-self: center;
+            width: 90%;
+            text-align: center;
+            font-size: 0.9em;
+            border-radius: 10px;
+        }
+
+        .input-area {
+            display: flex;
+            padding: 15px;
+            background: white;
+            border-top: 1px solid #eee;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            outline: none;
+        }
+
+        button.send-btn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin-left: 10px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="chat-container">
+        <div class="chat-header">
+            <span>🌳 我的专属树洞</span>
+            <button class="summary-btn" onclick="getSummary()">生成今日情绪卡</button>
+        </div>
+        <div class="chat-box" id="chatBox">
+            <div class="message ai-message">你好，我是你的树洞。今天过得怎么样？有什么烦心事都可以对我说哦。</div>
+        </div>
+        <div class="input-area">
+            <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="previewImage()">
+            <button class="upload-btn" onclick="document.getElementById('imageInput').click()">📷</button>
+        
+            <input type="text" id="userInput" placeholder="写下你的情绪，或发张照片..." onkeypress="handleKeyPress(event)">
+            <button class="send-btn" onclick="sendMessage()">发送</button>
+        </div>
+        <div id="imagePreviewContainer" style="display: none; padding: 0 15px 10px; background: white;">
+            <img id="imagePreview" style="max-height: 60px; border-radius: 8px; border: 1px solid #ccc;">
+            <span style="cursor:pointer; color:red; margin-left:10px;" onclick="clearImage()">✖ 取消图片</span>
+        </div>
+    </div>
+
+    <script>
+        // 在系统后台默默记录所有的聊天历史
+        let fullChatHistory = "";
+
+        async function sendMessage() {
+            const inputField = document.getElementById('userInput');
+            const chatBox = document.getElementById('chatBox');
+            const text = inputField.value.trim();
+
+            if (!text) return;
+
+            // 1. 显示用户的话，并记录到历史中
+            chatBox.innerHTML += `<div class="message user-message">${text}</div>`;
+            fullChatHistory += `用户说：${text}\n`;
+
+            inputField.value = '';
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            const loadingId = 'loading-' + Date.now();
+            chatBox.innerHTML += `<div class="message ai-message" id="${loadingId}">树洞正在倾听...</div>`;
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text })
+                });
+
+                const data = await response.json();
+
+                // 2. 显示 AI 的回复，并记录到历史中
+                document.getElementById(loadingId).innerText = data.reply;
+                fullChatHistory += `树洞回复：${data.reply}\n`;
+
+            } catch (error) {
+                document.getElementById(loadingId).innerText = "（哎呀，树洞似乎开小差了）";
+            }
+
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // 新增：调用后端摘要接口的函数
+        async function getSummary() {
+            if (fullChatHistory === "") {
+                alert("我们还没有聊天呢，先跟我说说话吧！");
+                return;
+            }
+
+            const chatBox = document.getElementById('chatBox');
+            const loadingId = 'summary-loading-' + Date.now();
+
+            // 在界面上插入一个黄色的专属情绪卡片框
+            chatBox.innerHTML += `<div class="message summary-message" id="${loadingId}">正在生成您的专属情绪报告...</div>`;
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/summary', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_history: fullChatHistory })
+                });
+
+                const data = await response.json();
+
+                // 将后端的摘要结果显示在黄色卡片里（把换行符替换为 HTML 的 <br> 以便格式美观）
+                document.getElementById(loadingId).innerHTML = "<strong>🌟 今日心境报告 🌟</strong><br>" + data.summary.replace(/\n/g, '<br>');
+            } catch (error) {
+                document.getElementById(loadingId).innerText = "生成情绪报告失败，请重试。";
+            }
+
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') sendMessage();
+        }
+    </script>
+
+</body>
+
+</html>

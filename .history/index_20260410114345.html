@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 树洞伴侣</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#4CAF50">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="小树">
+    <style>
+        /* 1. 默认主题色（生机盎然的绿色） */
+        :root {
+            --bg-color: #f0f2f5;
+            --header-bg: #4CAF50;
+            --btn-bg: #4CAF50;
+            --btn-hover: #45a049;
+            --user-msg-bg: #dcf8c6;
+        }
+
+        /* 2. 阴天/压力主题（治愈的莫兰迪灰蓝色） */
+        body.theme-gloomy {
+            --bg-color: #e2e8f0;
+            --header-bg: #64748b;
+            --btn-bg: #64748b;
+            --btn-hover: #475569;
+            --user-msg-bg: #cbd5e1;
+        }
+
+        /* 3. 晴天/开心主题（温暖的阳光橙黄色） */
+        body.theme-sunny {
+            --bg-color: #fffbeb;
+            --header-bg: #fbbf24;
+            --btn-bg: #fbbf24;
+            --btn-hover: #f59e0b;
+            --user-msg-bg: #fef3c7;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color); /* 换成变量 */
+            transition: background-color 1.5s ease; /* 魔法渐变动画，耗时1.5秒 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 400px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 80vh;
+        }
+
+        .chat-header {
+            background-color: var(--header-bg); /* 换成变量 */
+            transition: background-color 1.5s ease;
+            /* ... 保留原有样式 ... */
+            color: white;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+        }
+
+        .summary-btn {
+            background-color: white;
+            color: #4CAF50;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+
+        .summary-btn:hover {
+            background-color: #f0f0f0;
+        }
+
+        .chat-box {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background-color: #fafafa;
+        }
+
+        /* --- 消息容器与头像样式 --- */
+        .message-wrapper {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 15px;
+            gap: 10px;
+        }
+
+        .user-wrapper {
+            flex-direction: row-reverse;
+        }
+
+        .ai-wrapper {
+            flex-direction: row;
+        }
+
+        .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 20px;
+            background-color: #eee;
+            flex-shrink: 0;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .ai-avatar {
+            background-color: #e8f5e9;
+        }
+
+        .user-avatar {
+            background-color: #e3f2fd;
+        }
+
+        /* --- 气泡样式优化 --- */
+        .message {
+            max-width: 70%;
+            padding: 10px 15px;
+            border-radius: 15px;
+            line-height: 1.5;
+            font-size: 0.95em;
+            word-wrap: break-word;
+        }
+
+        .user-message {
+            background-color: var(--user-msg-bg); /* 换成变量 */
+            transition: background-color 1.5s ease;
+            border-top-right-radius: 2px;
+        }
+
+        .ai-message {
+            background-color: #ffffff;
+            border: 1px solid #eee;
+            border-top-left-radius: 2px;
+        }
+
+        /* --- 快捷引导气泡样式 --- */
+        .quick-replies {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 5px;
+            margin-left: 46px;
+        }
+
+        .quick-btn {
+            background-color: #fff;
+            border: 1px solid #4CAF50;
+            color: #4CAF50;
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-btn:hover {
+            background-color: #4CAF50;
+            color: #fff;
+        }
+
+        .summary-message {
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            align-self: center;
+            width: 90%;
+            text-align: center;
+            font-size: 0.9em;
+            border-radius: 10px;
+        }
+
+        /* --- 底部输入区样式 --- */
+        .input-area {
+            display: flex;
+            padding: 15px;
+            background: white;
+            border-top: 1px solid #eee;
+            align-items: center;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            outline: none;
+        }
+
+        button.send-btn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin-left: 10px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button.upload-btn {
+            background-color: #f0f2f5;
+            color: #555;
+            border: 1px solid #ccc;
+            width: 42px;
+            height: 42px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            line-height: 1;
+            padding: 0;
+            flex-shrink: 0;
+            border-radius: 50%;
+            cursor: pointer;
+            margin-right: 8px;
+            font-size: 20px;
+            outline: none;
+        }
+
+        button.upload-btn:hover {
+            background-color: #e4e6e9;
+        }
+
+        /* 录音呼吸灯动画 */
+        .recording {
+            background-color: #ffcccc !important;
+            color: red !important;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <span>🌳 我的专属树洞</span>
+            <button class="summary-btn" onclick="getSummary()">生成今日情绪卡</button>
+        </div>
+
+        <div class="chat-box" id="chatBox">
+            <div class="message-wrapper ai-wrapper">
+                <div class="avatar ai-avatar">🌳</div>
+                <div class="message ai-message">
+                    你好呀！我是你的专属树洞精灵『小树』✨<br>
+                    你可以随时对我吐苦水、分享开心事，也可以发照片给我看哦（点击下方相机图标）。<br>
+                    今天想聊点什么呢？
+                </div>
+            </div>
+            <div class="quick-replies" id="quickReplies">
+                <button class="quick-btn" onclick="sendQuickReply('哎，我今天真的好累哦😔')">今天好累哦 😔</button>
+                <button class="quick-btn" onclick="sendQuickReply('遇到一件超开心的事情！✨')">分享开心事 ✨</button>
+                <button class="quick-btn" onclick="document.getElementById('imageInput').click()">发张照片看看 📷</button>
+            </div>
+        </div>
+
+        <div id="imagePreviewContainer" style="display: none; padding: 0 15px 10px; background: white;">
+            <img id="imagePreview" style="max-height: 60px; border-radius: 8px; border: 1px solid #ccc;">
+            <span style="cursor:pointer; color:red; margin-left:10px;" onclick="clearImage()">✖ 取消图片</span>
+        </div>
+
+    <div class="input-area">
+        <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="previewImage()">
+        <button class="upload-btn" onclick="document.getElementById('imageInput').click()">📷</button>
+        <button class="upload-btn" id="micBtn" onclick="toggleVoice()" title="点击开始/停止说话">🎤</button>
+    
+        <button class="upload-btn" id="speakerBtn" onclick="toggleVoiceOutput()" title="开启/关闭语音播报">🔊</button>
+    
+        <input type="text" id="userInput" placeholder="写下你的情绪，或发张照片..." onkeypress="handleKeyPress(event)">
+        <button class="send-btn" onclick="sendMessage()">发送</button>
+    </div>
+    </div>
+
+    <script>
+        // === 1. 全局变量区（必须在最前面） ===
+        let fullChatHistory = "";
+        let currentImageDataUrl = null;
+        let isVoiceOn = true; // 默认开启语音播报
+        let recognition;
+        let isRecording = false;
+
+        // === 2. 语音引擎初始化 ===
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'zh-CN';
+
+            recognition.onstart = function () {
+                isRecording = true;
+                document.getElementById('micBtn').classList.add('recording');
+                document.getElementById('userInput').placeholder = "正在倾听，请说话...";
+            };
+
+            recognition.onresult = function (event) {
+                const transcript = event.results[0][0].transcript;
+                document.getElementById('userInput').value += transcript;
+            };
+
+            recognition.onerror = function (event) {
+                if (event.error === 'not-allowed') {
+                    alert("无法录音，请在浏览器地址栏左侧允许麦克风权限！");
+                }
+            };
+
+            recognition.onend = function () {
+                isRecording = false;
+                document.getElementById('micBtn').classList.remove('recording');
+                document.getElementById('userInput').placeholder = "写下你的情绪，或发张照片...";
+            };
+        }
+
+        // === 3. 功能交互函数 ===
+        function toggleVoice() {
+            if (!recognition) {
+                alert("非常抱歉，您的浏览器不支持语音输入功能。");
+                return;
+            }
+            if (isRecording) {
+                recognition.stop();
+            } else {
+                recognition.start();
+            }
+        }
+        // === 控制语音播报开关的函数 ===
+            function toggleVoiceOutput() {
+                isVoiceOn = !isVoiceOn; // 状态反转：开变关，关变开
+                const speakerBtn = document.getElementById('speakerBtn');
+
+                if (isVoiceOn) {
+                    speakerBtn.innerText = '🔊';
+                } else {
+                    speakerBtn.innerText = '🔇';
+                    // 如果用户点击静音时小树正在说话，立刻让它闭嘴
+                    if ('speechSynthesis' in window) {
+                        window.speechSynthesis.cancel();
+                    }
+                }
+            }
+        // === 5. TTS 语音合成：让小树开口说话 ===
+            // === 5. TTS 语音合成（进化版） ===
+                function speakText(text) {
+                    // 1. 如果用户关掉了喇叭，直接返回，不发声
+                    if (!isVoiceOn) return;
+
+                    if ('speechSynthesis' in window) {
+                        window.speechSynthesis.cancel();
+
+                        // 2. 文本清洗魔法：过滤各种奇奇怪怪的东西，防止它瞎读
+                        let cleanText = text
+                            .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27ff]/g, '') // 过滤掉 Emoji 颜文字
+                            .replace(/\n/g, '，') // 把换行变成逗号，停顿更自然
+                            .replace(/\.(gif|png|jpg|jpeg|webp)/gi, '') // 过滤掉 .gif 等图片后缀
+                            .replace(/http[s]?:\/\/\S+/g, ''); // 把不小心生成的网址也删掉
+
+                        const utterance = new SpeechSynthesisUtterance(cleanText);
+                        utterance.lang = 'zh-CN';
+                        utterance.rate = 1.0;
+                        utterance.pitch = 1.1;
+
+                        const voices = window.speechSynthesis.getVoices();
+                        const bestVoice = voices.find(v => v.lang === 'zh-CN' && v.name.includes('Xiaoxiao')) || voices.find(v => v.lang === 'zh-CN');
+                        if (bestVoice) {
+                            utterance.voice = bestVoice;
+                        }
+
+                        window.speechSynthesis.speak(utterance);
+                    } else {
+                        console.warn("当前浏览器不支持语音播报功能哦~");
+                    }
+                }
+
+        function previewImage() {
+            const file = document.getElementById('imageInput').files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    currentImageDataUrl = e.target.result;
+                    document.getElementById('imagePreview').src = currentImageDataUrl;
+                    document.getElementById('imagePreviewContainer').style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function clearImage() {
+            currentImageDataUrl = null;
+            document.getElementById('imageInput').value = '';
+            document.getElementById('imagePreviewContainer').style.display = 'none';
+        }
+
+        function sendQuickReply(text) {
+            document.getElementById('userInput').value = text;
+            sendMessage();
+            const quickReplies = document.getElementById('quickReplies');
+            if (quickReplies) quickReplies.style.display = 'none';
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // === 4. 核心发送与网络请求 ===
+        async function sendMessage() {
+                const inputField = document.getElementById('userInput');
+                const chatBox = document.getElementById('chatBox');
+                const text = inputField.value.trim();
+
+                // 如果没写字也没发图，就不执行
+                if (!text && !currentImageDataUrl) return;
+
+                // 隐藏快捷引导气泡
+                const quickReplies = document.getElementById('quickReplies');
+                if (quickReplies) quickReplies.style.display = 'none';
+
+                // ==========================================
+                // 👇 这里就是修改后的：渲染用户气泡（加入了 3D 图片支持）
+                // ==========================================
+                const imageId = 'img-' + Date.now(); // 给图片生成一个唯一的身份证号
+                // 如果用户传了图片，预留一个专属的 HTML 容器
+                let imageHTML = currentImageDataUrl ? `<div id="${imageId}" style="margin-top: 8px; border-radius: 8px; overflow: hidden; cursor: crosshair;"></div>` : '';
+
+                let userMessageHTML = `
+            <div class="message-wrapper user-wrapper">
+                <div class="avatar user-avatar">👤</div>
+                <div class="message user-message">
+                    ${text}
+                    ${imageHTML}
+                </div>
+            </div>`;
+                chatBox.innerHTML += userMessageHTML;
+
+                fullChatHistory += `用户说：${text}\n`;
+                inputField.value = '';
+                chatBox.scrollTop = chatBox.scrollHeight;
+
+                // 如果有图片，立刻向后端索要深度图，并召唤 3D 魔法！
+                if (currentImageDataUrl) {
+                    create3DPhoto(imageId, currentImageDataUrl);
+                }
+                // ==========================================
+                // 👆 修改结束
+                // ==========================================
+
+                // 渲染 AI Loading 气泡
+                const loadingId = 'loading-' + Date.now();
+                let aiLoadingHTML = `
+            <div class="message-wrapper ai-wrapper">
+                <div class="avatar ai-avatar">🌳</div>
+                <div class="message ai-message" id="${loadingId}">小树正在敲字...</div>
+            </div>`;
+                chatBox.innerHTML += aiLoadingHTML;
+                chatBox.scrollTop = chatBox.scrollHeight;
+
+                try {
+                    // 向后端发送聊天请求
+                    const response = await fetch('http://127.0.0.1:8000/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            text: text,
+                            image_url: currentImageDataUrl
+                        })
+                    });
+
+                    const data = await response.json();
+                    document.getElementById(loadingId).innerText = data.reply;
+                    fullChatHistory += `小树回复：${data.reply}\n`;
+
+                    // 如果你之前加了语音播报，这里触发
+                    if (typeof speakText === 'function') {
+                        speakText(data.reply);
+                    }
+
+                } catch (error) {
+                    document.getElementById(loadingId).innerText = "（哎呀，小树的信号断啦，检查一下服务器哦）";
+                }
+
+                // 发送完清理图片
+                clearImage();
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+        async function getSummary() {
+            if (fullChatHistory === "") {
+                alert("我们还没有聊天呢，先跟我说说话吧！");
+                return;
+            }
+
+            const chatBox = document.getElementById('chatBox');
+            const loadingId = 'summary-loading-' + Date.now();
+
+            chatBox.innerHTML += `<div class="message summary-message" id="${loadingId}">正在生成您的专属情绪报告...</div>`;
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/summary', { // 注意如果你的路由是 /summary，就写 /summary
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_history: fullChatHistory })
+                });
+
+                const data = await response.json();
+                let rawSummary = data.summary; // 拿到大模型返回的原始文本
+
+                // 1. 默认主题
+                let themeToApply = 'theme-default';
+
+                // 2. 正则表达式魔法：寻找文字里有没有 [theme-xxx] 这样的暗号
+                const themeMatch = rawSummary.match(/\[(theme-[a-z]+)\]/);
+
+                if (themeMatch) {
+                    themeToApply = themeMatch[1]; // 提取出 theme-gloomy 或 theme-sunny
+                    // 3. 把这个暗号从要展示给用户的文字里“抹除”掉，以免穿帮！
+                    rawSummary = rawSummary.replace(themeMatch[0], '').trim();
+                }
+
+                // 4. 给整个网页换装！清除旧主题，加上新主题
+                document.body.className = '';
+                document.body.classList.add(themeToApply);
+                // 5. 显示干净的情绪卡片文字
+                document.getElementById(loadingId).innerHTML = "<strong>🌟 今日心境报告 🌟</strong><br>" + rawSummary.replace(/\n/g, '<br>');
+
+                // 如果开启了语音播报，把这段总结也读出来（可选）
+                if (typeof speakText === 'function') {
+                    speakText(rawSummary);
+                }
+
+            } catch (error) {
+                document.getElementById(loadingId).innerText = "生成情绪报告失败，请重试。";
+            }
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+        // === 5. PWA Service Worker 注册 ===
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('./sw.js')
+                        .then(reg => console.log('PWA 注册成功！小树可以安装到桌面啦！'))
+                        .catch(err => console.error('PWA 注册失败：', err));
+                });
+            }
+        // === 6. 视觉魔法：裸眼 3D 照片渲染器 ===
+            async function create3DPhoto(containerId, originalBase64) {
+                const container = document.getElementById(containerId);
+                // ✅ 替换成干净的英文测试一下
+                container.innerHTML = "<div style='font-size:0.9em; color:#888; text-align:center;'>Loading 3D...</div>";
+
+                try {
+                    // 1. 向你的 Python 后端请求深度特征矩阵
+                    const response = await fetch('http://127.0.0.1:8000/generate_depth', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image_url: originalBase64 })
+                    });
+                    const data = await response.json();
+                    const depthBase64 = data.depth_map;
+
+                    container.innerHTML = ""; // 清空提示文字
+
+                    // 2. 初始化 WebGL 舞台
+                    const app = new PIXI.Application({
+                        width: 260,
+                        height: 200,
+                        backgroundAlpha: 0
+                    });
+                    container.appendChild(app.view);
+
+                    // 3. 将原图和深度图加载为纹理
+                    const imgTexture = PIXI.Texture.from(originalBase64);
+                    const depthTexture = PIXI.Texture.from(depthBase64);
+
+                    const imgSprite = new PIXI.Sprite(imgTexture);
+                    const depthSprite = new PIXI.Sprite(depthTexture);
+
+                    // 裁剪适应气泡大小
+                    imgSprite.width = 260;
+                    imgSprite.height = 200;
+                    depthSprite.width = 260;
+                    depthSprite.height = 200;
+
+                    app.stage.addChild(imgSprite);
+                    app.stage.addChild(depthSprite);
+
+                    // 4. 核心：应用置换滤镜 (Displacement Filter)
+                    const displacementFilter = new PIXI.filters.DisplacementFilter(depthSprite);
+                    app.stage.filters = [displacementFilter];
+                    displacementFilter.scale.x = 0;
+                    displacementFilter.scale.y = 0;
+
+                    // 5. 监听鼠标移动，实时计算偏移量
+                    app.view.addEventListener('mousemove', (e) => {
+                        const rect = app.view.getBoundingClientRect();
+                        // 将坐标归一化到 -1 到 1 之间
+                        const x = ((e.clientX - rect.left) / rect.width - 0.5) * 2;
+                        const y = ((e.clientY - rect.top) / rect.height - 0.5) * 2;
+
+                        // 乘以强度系数 (可根据喜好调节数字 15 的大小)
+                        displacementFilter.scale.x = -x * 15;
+                        displacementFilter.scale.y = -y * 15;
+                    });
+
+                    // 鼠标移出时，图层归位
+                    app.view.addEventListener('mouseleave', () => {
+                        displacementFilter.scale.x = 0;
+                        displacementFilter.scale.y = 0;
+                    });
+
+                } catch (err) {
+                    console.error("3D 渲染失败:", err);
+                    container.innerHTML = "<img src='" + originalBase64 + "' style='max-width:260px; border-radius:8px;'>"; // 失败则降级显示原图
+                }
+            }
+    </script>
+</body>
+
+</html>
