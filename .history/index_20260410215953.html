@@ -617,7 +617,6 @@
 
                     payloadText = text + memoryPrompt; // 将记忆偷偷拼接到用户的文本后面发给大模型
                     console.log("🧠 已注入 RAG 长期记忆！");
-                }
                 const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/chat', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: text, image_url: currentImageDataUrl })

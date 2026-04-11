@@ -602,22 +602,6 @@
             chatBox.scrollTop = chatBox.scrollHeight;
 
             try {
-                let payloadText = text; // 默认发送的是用户输入的文本
-
-                // 【核心判断】如果这是当天的“前几句”对话，并且我们有长期记忆，我们就给大模型“递纸条”
-                const chatTurns = fullChatHistory.split('用户说：').length - 1;
-
-                if (chatTurns <= 2 && longTermMemory.length > 0) {
-                    // 把过去几天的记忆拼接成一段系统私语
-                    let memoryPrompt = "\n\n【系统附加机密指令：作为树洞精灵，请记住用户过去几天的心情状态：";
-                    longTermMemory.forEach(m => {
-                        memoryPrompt += `[${m.date}] ${m.summary}。`;
-                    });
-                    memoryPrompt += "请在接下来的回复中，像老朋友一样，极其自然、不露痕迹地关心一下TA过去几天的状况，让TA感受到你记得TA的事情。】";
-
-                    payloadText = text + memoryPrompt; // 将记忆偷偷拼接到用户的文本后面发给大模型
-                    console.log("🧠 已注入 RAG 长期记忆！");
-                }
                 const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/chat', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: text, image_url: currentImageDataUrl })
@@ -708,27 +692,6 @@
                 if (match) { document.body.className = match[1]; rawSummary = rawSummary.replace(match[0], '').trim(); }
                 document.getElementById(loadingId).innerHTML = "<strong>🌟 今日心境报告 🌟</strong><br>" + rawSummary.replace(/\n/g, '<br>');
                 speakText(rawSummary);
-                const today = new Date().toLocaleDateString('zh-CN'); // 获取今天的日期
-
-                // 检查今天是不是已经总结过了，避免重复
-                const existingIndex = longTermMemory.findIndex(m => m.date === today);
-                if (existingIndex > -1) {
-                    longTermMemory[existingIndex].summary = rawSummary; // 覆盖今天的
-                } else {
-                    longTermMemory.push({ date: today, summary: rawSummary }); // 追加新的一天
-                }
-
-                // 限制记忆长度，比如只记住最近 7 天，防止传给大模型的信息过长（爆 Token）
-                if (longTermMemory.length > 7) {
-                    longTermMemory.shift();
-                }
-
-                // 高强度加密后，存入本地底层的保险箱
-                if (cryptoKeyObj) {
-                    const encMem = await encryptData(JSON.stringify(longTermMemory));
-                    localStorage.setItem('treeHole_long_term_memory', encMem);
-                    console.log("🔒 今日情绪已转化为长期记忆，并加密保存。");
-                }
             } catch (error) { document.getElementById(loadingId).innerText = "生成失败，请重试。"; }
         }
     </script>

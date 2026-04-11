@@ -603,10 +603,10 @@
 
             try {
                 let payloadText = text; // 默认发送的是用户输入的文本
-
+                
                 // 【核心判断】如果这是当天的“前几句”对话，并且我们有长期记忆，我们就给大模型“递纸条”
                 const chatTurns = fullChatHistory.split('用户说：').length - 1;
-
+                
                 if (chatTurns <= 2 && longTermMemory.length > 0) {
                     // 把过去几天的记忆拼接成一段系统私语
                     let memoryPrompt = "\n\n【系统附加机密指令：作为树洞精灵，请记住用户过去几天的心情状态：";
@@ -614,10 +614,9 @@
                         memoryPrompt += `[${m.date}] ${m.summary}。`;
                     });
                     memoryPrompt += "请在接下来的回复中，像老朋友一样，极其自然、不露痕迹地关心一下TA过去几天的状况，让TA感受到你记得TA的事情。】";
-
+                    
                     payloadText = text + memoryPrompt; // 将记忆偷偷拼接到用户的文本后面发给大模型
                     console.log("🧠 已注入 RAG 长期记忆！");
-                }
                 const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/chat', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: text, image_url: currentImageDataUrl })
