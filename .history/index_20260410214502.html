@@ -391,7 +391,6 @@
                         if (decrypted) {
                             fullChatHistory = decrypted;
                             alert("✅ 历史记忆解密成功！");
-                            renderHistoryToScreen(fullChatHistory);
                             // 这里可以进一步写逻辑把历史记录渲染回屏幕上，目前先放在内存里供情绪卡使用
                         } else {
                             alert("❌ 密码错误！无法解锁历史记忆。");
