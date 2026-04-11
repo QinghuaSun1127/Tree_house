@@ -3,8 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover">
     <title>AI 树洞伴侣</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
     <link rel="manifest" href="./manifest.json">
@@ -12,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="小树">
-
+    
     <style>
         /* === 1. 主题与基础设置 === */
         :root {
@@ -50,8 +49,7 @@
             width: 100%;
             margin: 0;
             padding: 0;
-            overflow-x: hidden;
-            /* 绝对禁止网页左右摇摆 */
+            overflow-x: hidden; /* 绝对禁止网页左右摇摆 */
         }
 
         /* === 2. 聊天主体容器 === */
@@ -91,15 +89,13 @@
             font-weight: bold;
         }
 
-        .summary-btn:hover {
-            background-color: #f0f0f0;
-        }
+        .summary-btn:hover { background-color: #f0f0f0; }
 
         /* 给底部留出空间，防止消息被 fixed 的输入框挡住 */
         .chat-box {
             flex: 1;
             padding: 15px;
-            padding-bottom: 80px;
+            padding-bottom: 80px; 
             overflow-y: auto;
             display: flex;
             flex-direction: column;
@@ -115,13 +111,8 @@
             gap: 10px;
         }
 
-        .user-wrapper {
-            flex-direction: row-reverse;
-        }
-
-        .ai-wrapper {
-            flex-direction: row;
-        }
+        .user-wrapper { flex-direction: row-reverse; }
+        .ai-wrapper { flex-direction: row; }
 
         .avatar {
             width: 36px;
@@ -135,13 +126,8 @@
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
 
-        .ai-avatar {
-            background-color: #e8f5e9;
-        }
-
-        .user-avatar {
-            background-color: #e3f2fd;
-        }
+        .ai-avatar { background-color: #e8f5e9; }
+        .user-avatar { background-color: #e3f2fd; }
 
         .message {
             max-width: 70%;
@@ -206,84 +192,64 @@
             border-radius: 8px;
             overflow: hidden;
             cursor: crosshair;
-            touch-action: none;
-            /* 防止触摸照片时页面乱滚 */
+            touch-action: none; /* 防止触摸照片时页面乱滚 */
             max-width: 260px;
-            display: inline-block;
-            background-color: #eee;
-            line-height: 0;
+            display: inline-block; 
+            background-color: #eee; 
+            line-height: 0; 
         }
 
         /* === 6. 终极绝杀：强行接管移动端底部输入区 === */
         .input-area {
-            position: fixed !important;
-            /* 无视一切，强行固定在底部 */
+            position: fixed !important; /* 无视一切，强行固定在底部 */
             bottom: 0 !important;
             left: 0 !important;
-            right: 0 !important;
-            width: 100vw !important;
-            /* 强制宽度等于屏幕物理宽度 */
+            right: 0 !important; 
+            width: 100vw !important; /* 强制宽度等于屏幕物理宽度 */
             max-width: 100% !important;
-            margin: 0 !important;
-            padding: 8px 10px !important;
-            /* 安全留白 */
-            box-sizing: border-box !important;
-
+            margin: 0 !important; 
+            padding: 8px 10px !important; /* 安全留白 */
+            box-sizing: border-box !important; 
+            
             display: flex !important;
             align-items: center !important;
             justify-content: space-between !important;
             background-color: #fefefe !important;
-            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05) !important;
-            z-index: 9999 !important;
-            /* 绝不被遮挡 */
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.05) !important;
+            z-index: 9999 !important; /* 绝不被遮挡 */
         }
 
         .upload-btn-group {
             display: flex !important;
-            flex-shrink: 0 !important;
-            /* 图标死都不缩小 */
+            flex-shrink: 0 !important; /* 图标死都不缩小 */
             gap: 5px !important;
         }
 
         .upload-btn {
-            background: none;
-            border: none;
-            cursor: pointer;
-            padding: 8px;
-            font-size: 20px;
-            transition: all 0.2s ease;
-            color: #555;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            background: none; border: none; cursor: pointer;
+            padding: 8px; font-size: 20px; transition: all 0.2s ease;
+            color: #555; display: flex; justify-content: center; align-items: center;
         }
-
-        .upload-btn:hover {
-            background-color: #e4e6e9;
-            border-radius: 50%;
-        }
+        
+        .upload-btn:hover { background-color: #e4e6e9; border-radius: 50%; }
 
         #userInput {
-            flex: 1 1 auto !important;
-            width: 10px !important;
-            /* 靠 flex 撑开，绝不挤压两边 */
-            min-width: 0 !important;
+            flex: 1 1 auto !important; 
+            width: 10px !important; /* 靠 flex 撑开，绝不挤压两边 */
+            min-width: 0 !important; 
             height: 38px !important;
-            margin: 0 8px !important;
+            margin: 0 8px !important; 
             padding: 0 12px !important;
             box-sizing: border-box !important;
             border: 1px solid #ddd !important;
             border-radius: 19px !important;
-            font-size: 16px !important;
-            /* 终极封印 2：iOS 防放大诅咒 */
+            font-size: 16px !important; /* 终极封印 2：iOS 防放大诅咒 */
             outline: none !important;
         }
 
         .send-btn {
-            flex-shrink: 0 !important;
-            /* 发送按钮死都不缩小 */
-            white-space: nowrap !important;
-            /* 严禁换行 */
+            flex-shrink: 0 !important; /* 发送按钮死都不缩小 */
+            white-space: nowrap !important; /* 严禁换行 */
             background-color: var(--btn-bg) !important;
             color: #fff !important;
             padding: 8px 15px !important;
@@ -293,10 +259,8 @@
             cursor: pointer !important;
             transition: all 0.2s ease;
         }
-
-        .send-btn:hover {
-            background-color: var(--btn-hover) !important;
-        }
+        
+        .send-btn:hover { background-color: var(--btn-hover) !important; }
 
         /* 录音呼吸灯动画 */
         .recording {
@@ -307,17 +271,9 @@
         }
 
         @keyframes pulse {
-            0% {
-                transform: scale(1);
-            }
-
-            50% {
-                transform: scale(1.1);
-            }
-
-            100% {
-                transform: scale(1);
-            }
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
         }
     </style>
 </head>
@@ -343,13 +299,10 @@
                 <button class="quick-btn" onclick="sendQuickReply('遇到一件超开心的事情！✨')">分享开心事 ✨</button>
                 <button class="quick-btn" onclick="document.getElementById('imageInput').click()">发张照片看看 📷</button>
             </div>
-
-            <div id="imagePreviewContainer"
-                style="display: none; padding: 10px; background: #fff; text-align: center; border-radius: 8px; margin-bottom: 10px;">
-                <img id="imagePreview"
-                    style="max-height: 60px; border-radius: 8px; border: 1px solid #ccc; vertical-align: middle;">
-                <span style="cursor:pointer; color:red; margin-left:10px; font-size: 14px; vertical-align: middle;"
-                    onclick="clearImage()">✖ 取消图片</span>
+            
+            <div id="imagePreviewContainer" style="display: none; padding: 10px; background: #fff; text-align: center; border-radius: 8px; margin-bottom: 10px;">
+                <img id="imagePreview" style="max-height: 60px; border-radius: 8px; border: 1px solid #ccc; vertical-align: middle;">
+                <span style="cursor:pointer; color:red; margin-left:10px; font-size: 14px; vertical-align: middle;" onclick="clearImage()">✖ 取消图片</span>
             </div>
         </div>
 
@@ -462,14 +415,14 @@
                 const tempImageData = e.target.result;
                 document.getElementById('imagePreview').src = tempImageData;
                 document.getElementById('imagePreviewContainer').style.display = 'block';
-                document.getElementById('micBtn').classList.add('recording');
+                document.getElementById('micBtn').classList.add('recording'); 
                 document.getElementById('userInput').placeholder = "正在处理图片...";
 
                 const img = new Image();
                 img.src = tempImageData;
                 img.onload = function () {
                     const aspectRatio = img.width / img.height;
-                    const MAX_DIMENSION = 1024;
+                    const MAX_DIMENSION = 1024; 
                     let targetWidth, targetHeight;
 
                     if (img.width > img.height) {
@@ -599,9 +552,9 @@
                 const waitImageLoad = (src) => new Promise(res => { const img = new Image(); img.onload = () => res(img); img.src = src; });
                 const [originalImgObj, depthImgObj] = await Promise.all([waitImageLoad(originalBase64), waitImageLoad(depthBase64)]);
 
-                const appWidth = 260;
-                const aspectRatio = originalImgObj.width / originalImgObj.height;
-                const appHeight = Math.round(appWidth / aspectRatio);
+                const appWidth = 260; 
+                const aspectRatio = originalImgObj.width / originalImgObj.height; 
+                const appHeight = Math.round(appWidth / aspectRatio); 
 
                 container.innerHTML = "";
 
@@ -645,7 +598,7 @@
                 container.addEventListener('touchmove', (e) => {
                     e.preventDefault(); // 防止网页跟着滑走
                     const rect = container.getBoundingClientRect();
-                    const touch = e.touches[0];
+                    const touch = e.touches[0]; 
                     const x = ((touch.clientX - rect.left) / rect.width - 0.5) * 2;
                     const y = ((touch.clientY - rect.top) / rect.height - 0.5) * 2;
                     displacementFilter.scale.x = -x * 15;
@@ -665,7 +618,7 @@
                         if (e.gamma !== null && e.beta !== null) {
                             const x = Math.min(Math.max(e.gamma / 30, -1), 1);
                             const y = Math.min(Math.max((e.beta - 45) / 30, -1), 1);
-                            displacementFilter.scale.x = -x * 20;
+                            displacementFilter.scale.x = -x * 20; 
                             displacementFilter.scale.y = -y * 20;
                         }
                     });
@@ -725,5 +678,4 @@
         }
     </script>
 </body>
-
 </html>
