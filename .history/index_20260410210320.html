@@ -346,13 +346,7 @@
 
            
         </div>
-        <div id="imagePreviewContainer"
-            style="display: none; padding: 10px; background: #fff; text-align: center; border-radius: 8px; margin-bottom: 10px;">
-            <img id="imagePreview"
-                style="max-height: 60px; border-radius: 8px; border: 1px solid #ccc; vertical-align: middle;">
-            <span style="cursor:pointer; color:red; margin-left:10px; font-size: 14px; vertical-align: middle;"
-                onclick="clearImage()">✖ 取消图片</span>
-        </div>
+
         <div class="input-area">
             <div class="upload-btn-group">
                 <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="previewImage()">
@@ -367,40 +361,18 @@
 
     <script>
         // === 1. 破解移动端音频限制：静音解锁引擎 ===
-        // === 1. 移动端终极权限解锁引擎 (音频 + 陀螺仪) ===
-            let isDeviceUnlocked = false;
+        let isAudioUnlocked = false;
+        document.body.addEventListener('touchstart', unlockAudio, { once: true });
+        document.body.addEventListener('click', unlockAudio, { once: true });
 
-            // 监听用户的第一次触摸屏幕或点击，强行撕开系统的权限封锁
-            document.body.addEventListener('touchstart', unlockDeviceFeatures, { once: true });
-            document.body.addEventListener('click', unlockDeviceFeatures, { once: true });
-
-            function unlockDeviceFeatures() {
-                if (isDeviceUnlocked) return;
-
-                // 🔓 破解 1：悄悄播放静音，解锁 iOS 音频引擎
-                if ('speechSynthesis' in window) {
-                    const unlockUtterance = new SpeechSynthesisUtterance('');
-                    window.speechSynthesis.speak(unlockUtterance);
-                    console.log("✅ 移动端音频引擎已强行解锁！");
-                }
-
-                // 🔓 破解 2：向 iOS 13+ 索要陀螺仪权限 (这是最核心的一步！)
-                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    DeviceOrientationEvent.requestPermission()
-                        .then(permissionState => {
-                            if (permissionState === 'granted') {
-                                console.log("✅ 苹果陀螺仪权限获取成功！裸眼 3D 蓄势待发！");
-                            } else {
-                                console.log("❌ 用户拒绝了陀螺仪权限");
-                            }
-                        })
-                        .catch(console.error);
-                } else {
-                    console.log("✅ 安卓或旧版设备，陀螺仪默认可用！");
-                }
-
-                isDeviceUnlocked = true;
+        function unlockAudio() {
+            if (!isAudioUnlocked && 'speechSynthesis' in window) {
+                const unlockUtterance = new SpeechSynthesisUtterance('');
+                window.speechSynthesis.speak(unlockUtterance);
+                isAudioUnlocked = true;
+                console.log("🔓 移动端音频引擎已强行解锁！");
             }
+        }
 
         // === 2. 全局变量区 ===
         let fullChatHistory = "";
@@ -422,41 +394,24 @@
         }
 
         function speakText(text) {
-                if (!isVoiceOn) return;
-                if ('speechSynthesis' in window) {
-                    window.speechSynthesis.cancel(); // 切断上一句还没说完的话
-
-                    // 过滤掉颜文字、Emoji 和网址，防止 AI 念出一堆乱码
-                    let cleanText = text
-                        .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27ff]/g, '')
-                        .replace(/\.(gif|png|jpg|jpeg|webp)/gi, '')
-                        .replace(/http[s]?:\/\/\S+/g, '');
-
-                    const utterance = new SpeechSynthesisUtterance(cleanText);
-                    utterance.lang = 'zh-CN'; // 锁定中文
-                    utterance.rate = 1.0;     // 语速正常
-                    utterance.pitch = 1.1;    // 声音稍微清脆一点，更有“精灵”感
-
-                    // 极其关键的找声音逻辑
-                    let voices = window.speechSynthesis.getVoices();
-
-                    const playVoice = () => {
-                        voices = window.speechSynthesis.getVoices();
-                        // 优先寻找微软晓晓，或者苹果自带的温柔女声 (Ting-Ting / Siri)
-                        const bestVoice = voices.find(v => v.lang === 'zh-CN' && (v.name.includes('Xiaoxiao') || v.name.includes('Ting')))
-                            || voices.find(v => v.lang.includes('zh'));
-                        if (bestVoice) utterance.voice = bestVoice;
-                        window.speechSynthesis.speak(utterance);
-                    };
-
-                    // 兼容：如果声音包还没加载完，等它加载完再播
-                    if (voices.length === 0) {
-                        window.speechSynthesis.onvoiceschanged = playVoice;
-                    } else {
-                        playVoice();
-                    }
-                }
+            if (!isVoiceOn) return;
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                let cleanText = text
+                    .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27ff]/g, '')
+                    .replace(/\n/g, '，')
+                    .replace(/\.(gif|png|jpg|jpeg|webp)/gi, '')
+                    .replace(/http[s]?:\/\/\S+/g, '');
+                const utterance = new SpeechSynthesisUtterance(cleanText);
+                utterance.lang = 'zh-CN';
+                utterance.rate = 1.0;
+                utterance.pitch = 1.1;
+                const voices = window.speechSynthesis.getVoices();
+                const bestVoice = voices.find(v => v.lang === 'zh-CN' && v.name.includes('Xiaoxiao')) || voices.find(v => v.lang === 'zh-CN');
+                if (bestVoice) utterance.voice = bestVoice;
+                window.speechSynthesis.speak(utterance);
             }
+        }
 
         // === 4. 语音识别 (STT) ===
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {

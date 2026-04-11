@@ -422,41 +422,24 @@
         }
 
         function speakText(text) {
-                if (!isVoiceOn) return;
-                if ('speechSynthesis' in window) {
-                    window.speechSynthesis.cancel(); // 切断上一句还没说完的话
-
-                    // 过滤掉颜文字、Emoji 和网址，防止 AI 念出一堆乱码
-                    let cleanText = text
-                        .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27ff]/g, '')
-                        .replace(/\.(gif|png|jpg|jpeg|webp)/gi, '')
-                        .replace(/http[s]?:\/\/\S+/g, '');
-
-                    const utterance = new SpeechSynthesisUtterance(cleanText);
-                    utterance.lang = 'zh-CN'; // 锁定中文
-                    utterance.rate = 1.0;     // 语速正常
-                    utterance.pitch = 1.1;    // 声音稍微清脆一点，更有“精灵”感
-
-                    // 极其关键的找声音逻辑
-                    let voices = window.speechSynthesis.getVoices();
-
-                    const playVoice = () => {
-                        voices = window.speechSynthesis.getVoices();
-                        // 优先寻找微软晓晓，或者苹果自带的温柔女声 (Ting-Ting / Siri)
-                        const bestVoice = voices.find(v => v.lang === 'zh-CN' && (v.name.includes('Xiaoxiao') || v.name.includes('Ting')))
-                            || voices.find(v => v.lang.includes('zh'));
-                        if (bestVoice) utterance.voice = bestVoice;
-                        window.speechSynthesis.speak(utterance);
-                    };
-
-                    // 兼容：如果声音包还没加载完，等它加载完再播
-                    if (voices.length === 0) {
-                        window.speechSynthesis.onvoiceschanged = playVoice;
-                    } else {
-                        playVoice();
-                    }
-                }
+            if (!isVoiceOn) return;
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                let cleanText = text
+                    .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27ff]/g, '')
+                    .replace(/\n/g, '，')
+                    .replace(/\.(gif|png|jpg|jpeg|webp)/gi, '')
+                    .replace(/http[s]?:\/\/\S+/g, '');
+                const utterance = new SpeechSynthesisUtterance(cleanText);
+                utterance.lang = 'zh-CN';
+                utterance.rate = 1.0;
+                utterance.pitch = 1.1;
+                const voices = window.speechSynthesis.getVoices();
+                const bestVoice = voices.find(v => v.lang === 'zh-CN' && v.name.includes('Xiaoxiao')) || voices.find(v => v.lang === 'zh-CN');
+                if (bestVoice) utterance.voice = bestVoice;
+                window.speechSynthesis.speak(utterance);
             }
+        }
 
         // === 4. 语音识别 (STT) ===
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
