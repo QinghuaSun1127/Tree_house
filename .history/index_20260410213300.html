@@ -313,102 +313,8 @@
         let recognition;
         let isRecording = false;
         let isVoiceOn = true;
-        let isAudioUnlocked = false;
-        // ==========================================
-            // 🔐 零信任安全引擎 (Zero-Trust Security)
-            // 使用 AES-GCM 算法进行本地端到端加密
-            // ==========================================
-
-            let userSecretKey = null; // 用户的专属秘钥（绝不上传云端）
-            let cryptoKeyObj = null;  // 浏览器底层加密对象
-
-            // 1. 将用户输入的密码转化为高强度的 AES 密钥
-            async function deriveKey(password) {
-                const enc = new TextEncoder();
-                const keyMaterial = await crypto.subtle.importKey(
-                    "raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveKey"]
-                );
-                return crypto.subtle.deriveKey(
-                    {
-                        name: "PBKDF2",
-                        salt: enc.encode("TreeHole_Salt_2026"), // 固定的盐值
-                        iterations: 100000, // 迭代十万次，抵御暴力破解
-                        hash: "SHA-256"
-                    },
-                    keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
-                );
-            }
-
-            // 2. 加密功能：明文变密文
-            async function encryptData(text) {
-                if (!cryptoKeyObj) return null;
-                const enc = new TextEncoder();
-                const iv = crypto.getRandomValues(new Uint8Array(12)); // 每次生成随机的初始化向量
-                const ciphertext = await crypto.subtle.encrypt(
-                    { name: "AES-GCM", iv: iv }, cryptoKeyObj, enc.encode(text)
-                );
-
-                // 将二进制密文和 iv 打包成 Base64 存入本地
-                const exported = new Uint8Array(iv.length + ciphertext.byteLength);
-                exported.set(iv, 0);
-                exported.set(new Uint8Array(ciphertext), iv.length);
-                return btoa(String.fromCharCode(...exported));
-            }
-
-            // 3. 解密功能：密文还原明文
-            async function decryptData(base64String) {
-                if (!cryptoKeyObj) return null;
-                try {
-                    const rawData = Uint8Array.from(atob(base64String), c => c.charCodeAt(0));
-                    const iv = rawData.slice(0, 12);
-                    const data = rawData.slice(12);
-                    const decrypted = await crypto.subtle.decrypt(
-                        { name: "AES-GCM", iv: iv }, cryptoKeyObj, data
-                    );
-                    return new TextDecoder().decode(decrypted);
-                } catch (e) {
-                    return null; // 密码错误时解密失败
-                }
-            }
-
-            // 4. 初始化安全锁
-            async function initSecurity() {
-                if (!userSecretKey) {
-                    const pwd = prompt("请输入您的专属树洞访问密码（用于本地高强度加密）：\n⚠️ 请牢记，一旦遗忘，神仙也无法恢复您的聊天记录！");
-                    if (!pwd) return;
-
-                    document.getElementById('lockBtn').innerText = "🔄 密钥生成中...";
-                    cryptoKeyObj = await deriveKey(pwd);
-                    userSecretKey = pwd;
-
-                    document.getElementById('lockBtn').innerText = "🔓 隐私锁已解开";
-                    document.getElementById('lockBtn').style.color = "#fbbf24";
-
-                    // 尝试解密本地历史记录
-                    const savedEncryptedHistory = localStorage.getItem('treeHole_encrypted_history');
-                    if (savedEncryptedHistory) {
-                        const decrypted = await decryptData(savedEncryptedHistory);
-                        if (decrypted) {
-                            fullChatHistory = decrypted;
-                            alert("✅ 历史记忆解密成功！");
-                            // 这里可以进一步写逻辑把历史记录渲染回屏幕上，目前先放在内存里供情绪卡使用
-                        } else {
-                            alert("❌ 密码错误！无法解锁历史记忆。");
-                            userSecretKey = null;
-                            cryptoKeyObj = null;
-                            document.getElementById('lockBtn').innerText = "🔐 开启隐私锁";
-                        }
-                    }
-                } else {
-                    // 上锁逻辑：清除内存中的密码
-                    userSecretKey = null;
-                    cryptoKeyObj = null;
-                    fullChatHistory = "";
-                    document.getElementById('chatBox').innerHTML = "<div style='text-align:center; padding: 20px; color: #888;'>安全锁已开启，聊天内容已阅后即焚。<br>刷新页面重新输入密码即可恢复。</div>";
-                    document.getElementById('lockBtn').innerText = "🔐 开启隐私锁";
-                    document.getElementById('lockBtn').style.color = "#4CAF50";
-                }
-            }
+        
+        
 
         // ==========================================
         // 🚨 苹果 iOS 终极权限接管核心逻辑 🚨
@@ -565,13 +471,6 @@
                 document.getElementById(loadingId).innerText = "（哎呀，小树的信号断啦，检查一下服务器哦）";
             }
             clearImage(); chatBox.scrollTop = chatBox.scrollHeight;
-            if (cryptoKeyObj) {
-                const encryptedStr = await encryptData(fullChatHistory);
-                if (encryptedStr) {
-                    localStorage.setItem('treeHole_encrypted_history', encryptedStr);
-                    console.log("🔒 聊天记录已完成 AES-GCM 硬件级加密并存入本地。");
-                }
-            }
         }
 
         async function create3DPhoto(containerId, originalBase64) {

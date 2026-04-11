@@ -565,13 +565,6 @@
                 document.getElementById(loadingId).innerText = "（哎呀，小树的信号断啦，检查一下服务器哦）";
             }
             clearImage(); chatBox.scrollTop = chatBox.scrollHeight;
-            if (cryptoKeyObj) {
-                const encryptedStr = await encryptData(fullChatHistory);
-                if (encryptedStr) {
-                    localStorage.setItem('treeHole_encrypted_history', encryptedStr);
-                    console.log("🔒 聊天记录已完成 AES-GCM 硬件级加密并存入本地。");
-                }
-            }
         }
 
         async function create3DPhoto(containerId, originalBase64) {
