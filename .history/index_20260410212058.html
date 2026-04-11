@@ -3,8 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover">
     <title>AI 树洞伴侣</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
     <link rel="manifest" href="./manifest.json">
@@ -12,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="小树">
-
+    
     <style>
         :root {
             --bg-color: #f0f2f5;
@@ -23,239 +22,103 @@
         }
 
         body.theme-gloomy {
-            --bg-color: #e2e8f0;
-            --header-bg: #64748b;
-            --btn-bg: #64748b;
-            --btn-hover: #475569;
-            --user-msg-bg: #cbd5e1;
+            --bg-color: #e2e8f0; --header-bg: #64748b; --btn-bg: #64748b; --btn-hover: #475569; --user-msg-bg: #cbd5e1;
         }
 
         body.theme-sunny {
-            --bg-color: #fffbeb;
-            --header-bg: #fbbf24;
-            --btn-bg: #fbbf24;
-            --btn-hover: #f59e0b;
-            --user-msg-bg: #fef3c7;
+            --bg-color: #fffbeb; --header-bg: #fbbf24; --btn-bg: #fbbf24; --btn-hover: #f59e0b; --user-msg-bg: #fef3c7;
         }
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: var(--bg-color);
             transition: background-color 1.5s ease;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            width: 100%;
-            margin: 0;
-            padding: 0;
-            overflow-x: hidden;
+            display: flex; justify-content: center; align-items: center;
+            height: 100vh; width: 100%; margin: 0; padding: 0; overflow-x: hidden;
         }
 
         .chat-container {
-            width: 100%;
-            max-width: 400px;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            height: 85vh;
-            position: relative;
+            width: 100%; max-width: 400px; background: white; border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); overflow: hidden;
+            display: flex; flex-direction: column; height: 85vh; position: relative;
         }
 
         .chat-header {
-            background-color: var(--header-bg);
-            transition: background-color 1.5s ease;
-            color: white;
-            padding: 15px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-weight: bold;
-            z-index: 10;
+            background-color: var(--header-bg); transition: background-color 1.5s ease;
+            color: white; padding: 15px; display: flex; justify-content: space-between;
+            align-items: center; font-weight: bold; z-index: 10;
         }
 
         .summary-btn {
-            background-color: white;
-            color: #4CAF50;
-            border: none;
-            padding: 5px 10px;
-            border-radius: 15px;
-            cursor: pointer;
-            font-size: 0.8em;
-            font-weight: bold;
+            background-color: white; color: #4CAF50; border: none; padding: 5px 10px;
+            border-radius: 15px; cursor: pointer; font-size: 0.8em; font-weight: bold;
         }
 
         .chat-box {
-            flex: 1;
-            padding: 15px;
-            padding-bottom: 80px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            background-color: #fafafa;
+            flex: 1; padding: 15px; padding-bottom: 80px; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 10px; background-color: #fafafa;
         }
 
-        .message-wrapper {
-            display: flex;
-            align-items: flex-start;
-            margin-bottom: 15px;
-            gap: 10px;
-        }
-
-        .user-wrapper {
-            flex-direction: row-reverse;
-        }
-
-        .ai-wrapper {
-            flex-direction: row;
-        }
+        .message-wrapper { display: flex; align-items: flex-start; margin-bottom: 15px; gap: 10px; }
+        .user-wrapper { flex-direction: row-reverse; }
+        .ai-wrapper { flex-direction: row; }
 
         .avatar {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-size: 20px;
-            flex-shrink: 0;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            width: 36px; height: 36px; border-radius: 50%; display: flex;
+            justify-content: center; align-items: center; font-size: 20px;
+            flex-shrink: 0; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
 
-        .ai-avatar {
-            background-color: #e8f5e9;
-        }
-
-        .user-avatar {
-            background-color: #e3f2fd;
-        }
+        .ai-avatar { background-color: #e8f5e9; }
+        .user-avatar { background-color: #e3f2fd; }
 
         .message {
-            max-width: 70%;
-            padding: 10px 15px;
-            border-radius: 15px;
-            line-height: 1.5;
-            font-size: 0.95em;
-            word-wrap: break-word;
+            max-width: 70%; padding: 10px 15px; border-radius: 15px;
+            line-height: 1.5; font-size: 0.95em; word-wrap: break-word;
         }
 
-        .user-message {
-            background-color: var(--user-msg-bg);
-            transition: background-color 1.5s ease;
-            border-top-right-radius: 2px;
-        }
-
-        .ai-message {
-            background-color: #ffffff;
-            border: 1px solid #eee;
-            border-top-left-radius: 2px;
-        }
+        .user-message { background-color: var(--user-msg-bg); transition: background-color 1.5s ease; border-top-right-radius: 2px; }
+        .ai-message { background-color: #ffffff; border: 1px solid #eee; border-top-left-radius: 2px; }
 
         .summary-message {
-            background-color: #fff3cd;
-            border: 1px solid #ffeeba;
-            color: #856404;
-            align-self: center;
-            width: 90%;
-            text-align: center;
-            font-size: 0.9em;
-            border-radius: 10px;
+            background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404;
+            align-self: center; width: 90%; text-align: center; font-size: 0.9em; border-radius: 10px;
         }
 
-        .quick-replies {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 5px;
-            margin-left: 46px;
-        }
-
+        .quick-replies { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; margin-left: 46px; }
         .quick-btn {
-            background-color: #fff;
-            border: 1px solid #4CAF50;
-            color: #4CAF50;
-            padding: 6px 12px;
-            border-radius: 15px;
-            font-size: 0.85em;
-            cursor: pointer;
+            background-color: #fff; border: 1px solid #4CAF50; color: #4CAF50;
+            padding: 6px 12px; border-radius: 15px; font-size: 0.85em; cursor: pointer;
         }
 
         [id^="img-"] {
-            margin-top: 8px;
-            border-radius: 8px;
-            overflow: hidden;
-            touch-action: none;
-            max-width: 260px;
-            display: inline-block;
-            background-color: #eee;
-            line-height: 0;
+            margin-top: 8px; border-radius: 8px; overflow: hidden; touch-action: none; 
+            max-width: 260px; display: inline-block; background-color: #eee; line-height: 0; 
         }
 
         /* 强制底部的输入框 */
         .input-area {
-            position: fixed !important;
-            bottom: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            width: 100vw !important;
-            max-width: 100% !important;
-            margin: 0 !important;
-            padding: 8px 10px !important;
-            box-sizing: border-box !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: space-between !important;
-            background-color: #fefefe !important;
-            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05) !important;
-            z-index: 9999 !important;
+            position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important; 
+            width: 100vw !important; max-width: 100% !important; margin: 0 !important; 
+            padding: 8px 10px !important; box-sizing: border-box !important; 
+            display: flex !important; align-items: center !important; justify-content: space-between !important;
+            background-color: #fefefe !important; box-shadow: 0 -2px 10px rgba(0,0,0,0.05) !important; z-index: 9999 !important;
         }
 
-        .upload-btn-group {
-            display: flex !important;
-            flex-shrink: 0 !important;
-            gap: 5px !important;
-        }
-
+        .upload-btn-group { display: flex !important; flex-shrink: 0 !important; gap: 5px !important; }
         .upload-btn {
-            background: none;
-            border: none;
-            cursor: pointer;
-            padding: 8px;
-            font-size: 20px;
-            color: #555;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            background: none; border: none; cursor: pointer; padding: 8px; font-size: 20px; color: #555; display: flex; justify-content: center; align-items: center;
         }
-
+        
         #userInput {
-            flex: 1 1 auto !important;
-            width: 10px !important;
-            min-width: 0 !important;
-            height: 38px !important;
-            margin: 0 8px !important;
-            padding: 0 12px !important;
-            box-sizing: border-box !important;
-            border: 1px solid #ddd !important;
-            border-radius: 19px !important;
-            font-size: 16px !important;
-            outline: none !important;
+            flex: 1 1 auto !important; width: 10px !important; min-width: 0 !important; height: 38px !important;
+            margin: 0 8px !important; padding: 0 12px !important; box-sizing: border-box !important;
+            border: 1px solid #ddd !important; border-radius: 19px !important; font-size: 16px !important; outline: none !important;
         }
 
         .send-btn {
-            flex-shrink: 0 !important;
-            white-space: nowrap !important;
-            background-color: var(--btn-bg) !important;
-            color: #fff !important;
-            padding: 8px 15px !important;
-            border: none !important;
-            border-radius: 19px !important;
-            font-size: 14px !important;
-            cursor: pointer !important;
+            flex-shrink: 0 !important; white-space: nowrap !important; background-color: var(--btn-bg) !important;
+            color: #fff !important; padding: 8px 15px !important; border: none !important; border-radius: 19px !important; font-size: 14px !important; cursor: pointer !important;
         }
     </style>
 </head>
@@ -283,13 +146,9 @@
             </div>
         </div>
 
-        <div id="imagePreviewContainer"
-            style="display: none; position: fixed !important; bottom: 54px !important; left: 0 !important; width: 100vw !important; background: #fefefe !important; padding: 12px !important; text-align: center !important; border-top: 1px solid #eee !important; z-index: 9998 !important; box-sizing: border-box !important;">
-            <img id="imagePreview"
-                style="max-height: 80px; border-radius: 8px; border: 1px solid #ddd; vertical-align: middle;">
-            <span
-                style="display: inline-block; cursor:pointer; color:#ff4d4f; background: #fff1f0; border: 1px solid #ffa39e; padding: 6px 12px; border-radius: 15px; margin-left:15px; font-size: 14px; font-weight: bold; vertical-align: middle;"
-                onclick="clearImage()">✖ 取消图片</span>
+        <div id="imagePreviewContainer" style="display: none; position: fixed !important; bottom: 54px !important; left: 0 !important; width: 100vw !important; background: #fefefe !important; padding: 12px !important; text-align: center !important; border-top: 1px solid #eee !important; z-index: 9998 !important; box-sizing: border-box !important;">
+            <img id="imagePreview" style="max-height: 80px; border-radius: 8px; border: 1px solid #ddd; vertical-align: middle;">
+            <span style="display: inline-block; cursor:pointer; color:#ff4d4f; background: #fff1f0; border: 1px solid #ffa39e; padding: 6px 12px; border-radius: 15px; margin-left:15px; font-size: 14px; font-weight: bold; vertical-align: middle;" onclick="clearImage()">✖ 取消图片</span>
         </div>
 
         <div class="input-area">
@@ -353,13 +212,13 @@
         // 极其纯净、防报错的 TTS 播放逻辑
         function speakText(text) {
             if (!isVoiceOn || !('speechSynthesis' in window)) return;
-            window.speechSynthesis.cancel();
-
+            window.speechSynthesis.cancel(); 
+            
             let cleanText = text.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27ff]/g, '').replace(/http[s]?:\/\/\S+/g, '');
             const utterance = new SpeechSynthesisUtterance(cleanText);
-            utterance.lang = 'zh-CN';
-            utterance.rate = 1.0;
-
+            utterance.lang = 'zh-CN'; 
+            utterance.rate = 1.0; 
+            
             // 放弃强行指定特定的 Voice，交给 iOS 系统自动分配最适合的中文女声，彻底杜绝兼容性 Bug
             window.speechSynthesis.speak(utterance);
         }
@@ -399,7 +258,7 @@
                 img.src = tempImageData;
                 img.onload = function () {
                     const aspectRatio = img.width / img.height;
-                    const MAX_DIMENSION = 1024;
+                    const MAX_DIMENSION = 1024; 
                     let targetWidth = img.width > img.height ? MAX_DIMENSION : Math.round(MAX_DIMENSION * aspectRatio);
                     let targetHeight = img.width > img.height ? Math.round(MAX_DIMENSION / aspectRatio) : MAX_DIMENSION;
 
@@ -481,12 +340,12 @@
 
                 if (!response.ok) throw new Error("后端接口返回错误");
                 const data = await response.json();
-
+                
                 const waitLoad = (src) => new Promise(res => { const img = new Image(); img.onload = () => res(img); img.src = src; });
                 const [imgObj, depthObj] = await Promise.all([waitLoad(originalBase64), waitLoad(data.depth_map)]);
 
-                const appWidth = 260;
-                const appHeight = Math.round(appWidth / (imgObj.width / imgObj.height));
+                const appWidth = 260; 
+                const appHeight = Math.round(appWidth / (imgObj.width / imgObj.height)); 
                 container.innerHTML = "";
 
                 const app = new PIXI.Application({ width: appWidth, height: appHeight, backgroundAlpha: 0 });
@@ -526,7 +385,7 @@
             if (fullChatHistory === "") return alert("先跟我说说话吧！");
             const loadingId = 'summary-' + Date.now();
             document.getElementById('chatBox').insertAdjacentHTML('beforeend', `<div class="message summary-message" id="${loadingId}">正在生成您的专属情绪报告...</div>`);
-
+            
             try {
                 const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/summary', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -541,5 +400,4 @@
         }
     </script>
 </body>
-
 </html>
