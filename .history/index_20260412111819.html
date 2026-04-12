@@ -439,9 +439,7 @@
                 if (line.startsWith('用户说：')) {
                     chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${line.substring(4)}</div></div>`);
                 } else if (line.startsWith('小树回复：')) {
-                    // 👇 历史记录同样启用 Markdown 渲染
-                    const mdHtml = marked.parse(line.substring(5));
-                    chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai-wrapper"><div class="avatar ai-avatar">🌳</div><div class="message ai-message">${mdHtml}</div></div>`);
+                    chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai-wrapper"><div class="avatar ai-avatar">🌳</div><div class="message ai-message">${line.substring(5)}</div></div>`);
                 }
             }
             if (chatBox.innerHTML === '') {
@@ -548,14 +546,7 @@
 
             const imageId = 'img-' + Date.now();
             let imageHTML = currentImageDataUrl ? `<div id="${imageId}"></div>` : '';
-            // 👇 替换为动态呼吸打字动画
-            chatBox.insertAdjacentHTML('beforeend', `
-                <div class="message-wrapper ai-wrapper">
-                    <div class="avatar ai-avatar">🌳</div>
-                    <div class="message ai-message" id="${loadingId}">
-                        <div class="typing-dots"><span></span><span></span><span></span></div>
-                    </div>
-                </div>`);
+            chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${text}${imageHTML}</div></div>`);
             fullChatHistory += `用户说：${text}\n`;
             inputField.value = ''; chatBox.scrollTop = chatBox.scrollHeight;
 
@@ -582,8 +573,7 @@
                 });
 
                 const data = await response.json();
-                // 👇 启用 Markdown 渲染大模型的回复
-                document.getElementById(loadingId).innerHTML = marked.parse(data.reply);
+                document.getElementById(loadingId).innerText = data.reply;
                 fullChatHistory += `小树回复：${data.reply}\n`;
                 speakText(data.reply);
 
@@ -617,8 +607,7 @@
                 let rawSummary = (await response.json()).summary;
                 const match = rawSummary.match(/\[(theme-[a-z]+)\]/);
                 if (match) { document.body.className = match[1]; rawSummary = rawSummary.replace(match[0], '').trim(); }
-               // 👇 情绪报告启用 Markdown 渲染，视觉更清晰
-                document.getElementById(loadingId).innerHTML = "<strong>🌟 今日心境报告 🌟</strong><br>" + marked.parse(rawSummary);
+                document.getElementById(loadingId).innerHTML = "<strong>🌟 今日心境报告 🌟</strong><br>" + rawSummary.replace(/\n/g, '<br>');
                 speakText(rawSummary);
 
                 // 🧠 记忆沉淀逻辑

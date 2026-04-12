@@ -617,8 +617,7 @@
                 let rawSummary = (await response.json()).summary;
                 const match = rawSummary.match(/\[(theme-[a-z]+)\]/);
                 if (match) { document.body.className = match[1]; rawSummary = rawSummary.replace(match[0], '').trim(); }
-               // 👇 情绪报告启用 Markdown 渲染，视觉更清晰
-                document.getElementById(loadingId).innerHTML = "<strong>🌟 今日心境报告 🌟</strong><br>" + marked.parse(rawSummary);
+                document.getElementById(loadingId).innerHTML = "<strong>🌟 今日心境报告 🌟</strong><br>" + rawSummary.replace(/\n/g, '<br>');
                 speakText(rawSummary);
 
                 // 🧠 记忆沉淀逻辑
