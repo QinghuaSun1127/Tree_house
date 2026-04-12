@@ -1,0 +1,494 @@
+/* ==========================================
+   🎨 1. 全局变量与主题 (Themes)
+   ========================================== */
+:root {
+    --bg-gradient: linear-gradient(135deg, #e0f2f1 0%, #a5d6a7 100%);
+    --header-bg: #4CAF50;
+    --btn-bg: #4CAF50;
+    --btn-hover: #45a049;
+    --user-msg-bg: #dcf8c6;
+}
+
+body.theme-gloomy {
+    --bg-gradient: linear-gradient(135deg, #cbd5e1 0%, #64748b 100%);
+    --header-bg: #475569;
+    --btn-bg: #64748b;
+    --btn-hover: #475569;
+    --user-msg-bg: #e2e8f0;
+}
+
+body.theme-sunny {
+    --bg-gradient: linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%);
+    --header-bg: #f59e0b;
+    --btn-bg: #fbbf24;
+    --btn-hover: #f59e0b;
+    --user-msg-bg: #fef08a;
+}
+
+/* ==========================================
+   📐 2. 基础布局与容器 (Base & Layout)
+   ========================================== */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: var(--bg-gradient);
+    background-size: 200% 200%;
+    animation: gradientBreathe 12s ease infinite;
+    transition: background 2s ease;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    height: 100dvh;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+.chat-container {
+    width: 100%;
+    max-width: 500px;
+    background: white;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+/* ==========================================
+   🖼️ 3. UI 组件 (Components)
+   ========================================== */
+/* 头部导航 */
+.chat-header {
+    background-color: var(--header-bg);
+    transition: background-color 1.5s ease;
+    color: white;
+    padding: 12px 15px;
+    padding-top: max(12px, env(safe-area-inset-top));
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: bold;
+    z-index: 10;
+}
+
+.header-btns {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.summary-btn {
+    background-color: white;
+    color: #4CAF50;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 15px;
+    cursor: pointer;
+    font-size: 0.75em;
+    font-weight: bold;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: transform 0.1s;
+}
+
+.summary-btn:active {
+    transform: scale(0.95);
+}
+
+.danger-btn {
+    background-color: #fee2e2;
+    color: #ef4444;
+}
+
+/* 聊天内容区 */
+.chat-box {
+    flex: 1;
+    padding: 15px;
+    padding-bottom: 90px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background-color: #fafafa;
+    scroll-behavior: smooth;
+}
+
+.message-wrapper {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 15px;
+    gap: 10px;
+}
+
+.user-wrapper {
+    flex-direction: row-reverse;
+}
+
+.ai-wrapper {
+    flex-direction: row;
+}
+
+.avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 20px;
+    flex-shrink: 0;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.ai-avatar {
+    background-color: #e8f5e9;
+}
+
+.user-avatar {
+    background-color: #e3f2fd;
+}
+
+.message {
+    max-width: 70%;
+    padding: 10px 15px;
+    border-radius: 15px;
+    line-height: 1.5;
+    font-size: 0.95em;
+    word-wrap: break-word;
+}
+
+.user-message {
+    background-color: var(--user-msg-bg);
+    transition: background-color 1.5s ease;
+    border-top-right-radius: 2px;
+}
+
+.ai-message {
+    background-color: #ffffff;
+    border: 1px solid #eee;
+    border-top-left-radius: 2px;
+}
+
+/* Markdown 格式化 */
+.message p {
+    margin: 0 0 8px 0;
+}
+
+.message p:last-child {
+    margin-bottom: 0;
+}
+
+.message strong {
+    color: #2c3e50;
+}
+
+.message ul,
+.message ol {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.summary-message {
+    background-color: #fff3cd;
+    border: 1px solid #ffeeba;
+    color: #856404;
+    align-self: center;
+    width: 90%;
+    text-align: center;
+    font-size: 0.9em;
+    border-radius: 10px;
+}
+
+/* 快捷回复与底部输入 */
+.quick-replies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 5px;
+    margin-left: 46px;
+}
+
+.quick-btn {
+    background-color: #fff;
+    border: 1px solid #4CAF50;
+    color: #4CAF50;
+    padding: 6px 12px;
+    border-radius: 15px;
+    font-size: 0.85em;
+    cursor: pointer;
+}
+
+[id^="img-"] {
+    margin-top: 8px;
+    border-radius: 8px;
+    overflow: hidden;
+    touch-action: none;
+    max-width: 260px;
+    display: inline-block;
+    background-color: #eee;
+    line-height: 0;
+}
+
+.input-area {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100vw !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 10px 10px !important;
+    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    background-color: #fefefe !important;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05) !important;
+    z-index: 9999 !important;
+}
+
+.upload-btn-group {
+    display: flex !important;
+    flex-shrink: 0 !important;
+    gap: 5px !important;
+}
+
+.upload-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 8px;
+    font-size: 20px;
+    color: #555;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#userInput {
+    flex: 1 1 auto !important;
+    width: 10px !important;
+    min-width: 0 !important;
+    height: 38px !important;
+    margin: 0 8px !important;
+    padding: 0 12px !important;
+    box-sizing: border-box !important;
+    border: 1px solid #ddd !important;
+    border-radius: 19px !important;
+    font-size: 16px !important;
+    outline: none !important;
+}
+
+.send-btn {
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+    background-color: var(--btn-bg) !important;
+    color: #fff !important;
+    padding: 8px 15px !important;
+    border: none !important;
+    border-radius: 19px !important;
+    font-size: 14px !important;
+    cursor: pointer !important;
+}
+
+/* 图片预览区 */
+.image-preview-container {
+    position: fixed !important;
+    bottom: 58px !important;
+    left: 0 !important;
+    width: 100vw !important;
+    background: #fefefe !important;
+    padding: 12px !important;
+    text-align: center !important;
+    border-top: 1px solid #eee !important;
+    z-index: 9998 !important;
+    box-sizing: border-box !important;
+}
+
+.image-preview-container img {
+    max-height: 80px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    vertical-align: middle;
+}
+
+.cancel-image-btn {
+    display: inline-block;
+    cursor: pointer;
+    color: #ff4d4f;
+    background: #fff1f0;
+    border: 1px solid #ffa39e;
+    padding: 6px 12px;
+    border-radius: 15px;
+    margin-left: 15px;
+    font-size: 14px;
+    font-weight: bold;
+    vertical-align: middle;
+}
+
+/* ==========================================
+   🪄 4. 动画与特效 (Animations)
+   ========================================== */
+@keyframes gradientBreathe {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+.recording {
+    background-color: #ffcccc !important;
+    color: red !important;
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.1);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+.shake {
+    animation: shakeError 0.5s ease-in-out;
+}
+
+@keyframes shakeError {
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    20%,
+    60% {
+        transform: translateX(-5px);
+    }
+
+    40%,
+    80% {
+        transform: translateX(5px);
+    }
+}
+
+.typing-dots span {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background-color: #888;
+    border-radius: 50%;
+    margin: 0 2px;
+    animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.typing-dots span:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.typing-dots span:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes bounce {
+
+    0%,
+    80%,
+    100% {
+        transform: scale(0);
+    }
+
+    40% {
+        transform: scale(1);
+    }
+}
+
+/* PWA 安装横幅 */
+.pwa-banner {
+    position: fixed;
+    top: -100px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 92%;
+    max-width: 400px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    border-radius: 16px;
+    padding: 12px 15px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 10000;
+    transition: top 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.pwa-banner.show {
+    top: max(20px, env(safe-area-inset-top));
+}
+
+.pwa-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+
+.pwa-icon {
+    font-size: 24px;
+}
+
+.pwa-text {
+    font-size: 13px;
+    color: #333;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.pwa-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.pwa-btn {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 15px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(76, 175, 80, 0.3);
+}
+
+.pwa-close {
+    background: #f1f5f9;
+    color: #64748b;
+    border: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 12px;
+}
