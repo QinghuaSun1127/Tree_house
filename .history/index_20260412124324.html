@@ -778,59 +778,7 @@
                 app.stage.addChild(imgSprite); app.stage.addChild(depthSprite);
 
                 const filter = new PIXI.DisplacementFilter(depthSprite); app.stage.filters = [filter]; filter.scale.x = 0; filter.scale.y = 0;
-               const particleContainer = new PIXI.Container();
-                app.stage.addChild(particleContainer);
-                const particles = [];
-                const currentTheme = document.body.className; // 获取当前情绪决定天气
-
-                // 制造 50 个天气粒子
-                for (let i = 0; i < 50; i++) {
-                    const p = new PIXI.Graphics();
-                    if (currentTheme === 'theme-gloomy') {
-                        // 🌧️ 悲伤模式：倾斜的细雨滴
-                        p.beginFill(0xffffff, 0.5 + Math.random() * 0.3);
-                        p.drawRect(0, 0, 1.5, 12 + Math.random() * 8); // 细长的雨滴
-                        p.endFill();
-                        p.type = 'rain';
-                        p.vy = 8 + Math.random() * 5; // 下落速度快
-                    } else {
-                        // ✨ 开心/默认模式：漂浮的温暖光斑 (樱花/碎金)
-                        const color = currentTheme === 'theme-sunny' ? 0xffeaa7 : 0xd1fae5;
-                        p.beginFill(color, 0.4 + Math.random() * 0.4);
-                        p.drawCircle(0, 0, 1.5 + Math.random() * 2); // 圆形光斑
-                        p.endFill();
-                        p.type = 'orb';
-                        p.vy = -0.5 - Math.random() * 1; // 缓缓上升
-                    }
-                    p.x = Math.random() * appWidth;
-                    p.y = Math.random() * appHeight;
-                    p.vx = 0;
-                    p.baseX = p.x;
-                    p.randomOffset = Math.random() * 100;
-                    particleContainer.addChild(p);
-                    particles.push(p);
-                }
-
-                // 物理帧循环：渲染天气动态
-                window.lastTiltX = 0; // 记录陀螺仪倾斜角度作为风力
-                app.ticker.add(() => {
-                    particles.forEach(p => {
-                        p.y += p.vy;
-                        if (p.type === 'rain') {
-                            // 雨滴受重力风向影响倾斜
-                            p.x += window.lastTiltX * 8;
-                            p.rotation = -window.lastTiltX * 0.2; // 雨滴方向也会随风倾斜
-                            if (p.y > appHeight) { p.y = -20; p.x = Math.random() * appWidth; }
-                            if (p.x < -20) p.x = appWidth + 20;
-                            if (p.x > appWidth + 20) p.x = -20;
-                        } else {
-                            // 光斑随时间正弦波摇曳漂浮
-                            p.x += Math.sin(Date.now() / 1000 + p.randomOffset) * 0.3 + (window.lastTiltX * 2);
-                            if (p.y < -10) { p.y = appHeight + 10; p.x = Math.random() * appWidth; }
-                        }
-                    });
-                });
-                const applyTilt = (x, y) => { filter.scale.x = -x * 15; filter.scale.y = -y * 15; };
+               const applyTilt = (x, y) => { filter.scale.x = -x * 15; filter.scale.y = -y * 15; };
 
                 // 🚨 修复 1：补回 PC 端鼠标移动和离开交互
                 container.addEventListener('mousemove', (e) => {
