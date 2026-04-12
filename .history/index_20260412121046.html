@@ -708,7 +708,7 @@
             }
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 40000); // 3D 生成给 40 秒
+            const timeoutId = setTimeout(() => controller.abort(), 20000); // 3D 生成给 20 秒
 
             try {
                 const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/generate_depth', {
@@ -730,16 +730,8 @@
                 app.stage.addChild(imgSprite); app.stage.addChild(depthSprite);
 
                 const filter = new PIXI.DisplacementFilter(depthSprite); app.stage.filters = [filter]; filter.scale.x = 0; filter.scale.y = 0;
-               const applyTilt = (x, y) => { filter.scale.x = -x * 15; filter.scale.y = -y * 15; };
+                const applyTilt = (x, y) => { filter.scale.x = -x * 15; filter.scale.y = -y * 15; };
 
-                // 🚨 修复 1：补回 PC 端鼠标移动和离开交互
-                container.addEventListener('mousemove', (e) => {
-                    const rect = container.getBoundingClientRect();
-                    applyTilt(((e.clientX - rect.left) / rect.width - 0.5) * 2, ((e.clientY - rect.top) / rect.height - 0.5) * 2);
-                });
-                container.addEventListener('mouseleave', () => applyTilt(0, 0));
-
-                // 手机端触摸交互
                 container.addEventListener('touchmove', (e) => { e.preventDefault(); const rect = container.getBoundingClientRect(); const touch = e.touches[0]; applyTilt(((touch.clientX - rect.left) / rect.width - 0.5) * 2, ((touch.clientY - rect.top) / rect.height - 0.5) * 2); });
                 container.addEventListener('touchend', () => applyTilt(0, 0));
                 if (window.DeviceOrientationEvent) { window.addEventListener('deviceorientation', (e) => { if (e.gamma !== null && e.beta !== null) { applyTilt(Math.min(Math.max(e.gamma / 30, -1), 1), Math.min(Math.max((e.beta - 45) / 30, -1), 1)); } }); }
