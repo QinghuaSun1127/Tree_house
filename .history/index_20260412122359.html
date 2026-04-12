@@ -347,34 +347,7 @@
                 transform: scale(1);
             }
         }
-        .pwa-banner {
-            position: fixed;
-            top: -100px; /* 初始隐藏在屏幕上方 */
-            left: 50%;
-            transform: translateX(-50%);
-            width: 92%;
-            max-width: 400px;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px); /* 苹果风的毛玻璃效果 */
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-            border-radius: 16px;
-            padding: 12px 15px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            z-index: 10000;
-            transition: top 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* 极具弹性的下落动画 */
-        }
         
-        .pwa-banner.show { top: max(20px, env(safe-area-inset-top)); } /* 落下并避开刘海屏 */
-        
-        .pwa-content { display: flex; align-items: center; gap: 10px; flex: 1; }
-        .pwa-icon { font-size: 24px; }
-        .pwa-text { font-size: 13px; color: #333; font-weight: 500; line-height: 1.4; }
-        
-        .pwa-actions { display: flex; gap: 8px; align-items: center; }
-        .pwa-btn { background: #4CAF50; color: white; border: none; padding: 6px 14px; border-radius: 15px; font-size: 12px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 5px rgba(76, 175, 80, 0.3); }
-        .pwa-close { background: #f1f5f9; color: #64748b; border: none; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 12px; }
 
         /* 🚨 新增：弱网提醒的震动动画 */
         .shake {
@@ -402,16 +375,6 @@
 </head>
 
 <body>
-    <div id="pwaBanner" class="pwa-banner">
-        <div class="pwa-content">
-            <span class="pwa-icon">💡</span>
-            <div class="pwa-text">将小树添加到桌面<br><span style="font-size:11px; color:#666;">获取免打扰的全屏沉浸体验</span></div>
-        </div>
-        <div class="pwa-actions">
-            <button id="pwaInstallBtn" class="pwa-btn">安装</button>
-            <button id="pwaCloseBtn" class="pwa-close">✖</button>
-        </div>
-    </div>
     <div class="chat-container">
         <div class="chat-header">
             <span>🌳 树洞</span>
@@ -786,70 +749,6 @@
                 container.innerHTML = "<img src='" + originalBase64 + "' style='max-width:260px; border-radius:8px;'>";
             }
         }
-        let deferredPrompt = null;
-
-            function initPWA() {
-                // 1. 判断是否已经在独立 App 模式下运行 (iOS & Android & 电脑桌面)
-                const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone || document.referrer.includes('android-app://');
-                const hasDismissed = localStorage.getItem('treeHole_pwa_dismissed');
-
-                // 如果已经是 App 模式，绝对不打扰用户
-                if (isStandalone) {
-                    console.log("📱 已在沉浸式原生模式下运行，静默。");
-                    return;
-                }
-
-                const pwaBanner = document.getElementById('pwaBanner');
-                const installBtn = document.getElementById('pwaInstallBtn');
-                const closeBtn = document.getElementById('pwaCloseBtn');
-
-                // 2. 监听浏览器的系统级安装事件 (支持电脑 Chrome/Edge, 安卓 Chrome)
-                window.addEventListener('beforeinstallprompt', (e) => {
-                    e.preventDefault(); // 拦截浏览器自带的丑陋小横条
-                    deferredPrompt = e; // 扣下系统发出的安装子弹
-
-                    // 如果用户没有点过关闭，2秒后极其优雅地降下提示条
-                    if (!hasDismissed) {
-                        setTimeout(() => pwaBanner.classList.add('show'), 2000);
-                    }
-                });
-
-                // 如果是苹果 Safari（不支持 beforeinstallprompt），也降下提示条，通过文案引导
-                if (!hasDismissed && !deferredPrompt) {
-                    setTimeout(() => pwaBanner.classList.add('show'), 2500);
-                }
-
-                // 3. 点击安装按钮逻辑
-                installBtn.onclick = async () => {
-                    if (deferredPrompt) {
-                        // 电脑/安卓：直接发射子弹，呼出系统安装确认框
-                        deferredPrompt.prompt();
-                        const { outcome } = await deferredPrompt.userChoice;
-                        if (outcome === 'accepted') {
-                            console.log('✅ 用户同意安装到桌面');
-                            pwaBanner.classList.remove('show');
-                        }
-                        deferredPrompt = null;
-                    } else {
-                        // 苹果 iOS / 不支持 API 的环境：弹出优雅的操作指引
-                        const isIos = () => /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
-                        if (isIos()) {
-                            alert("🍎 苹果手机：\n请点击浏览器底部的『分享框 ↗』图标\n然后向上滑动选择『添加到主屏幕』\n即可拥有和原生 App 一样的全屏体验！");
-                        } else {
-                            alert("💻 电脑浏览器：\n请点击地址栏最右侧的『安装』图标，\n或在菜单栏选择『作为应用安装』！");
-                        }
-                    }
-                };
-
-                // 4. 用户点击关闭，尊重打扰，记录在本地不再烦人
-                closeBtn.onclick = () => {
-                    pwaBanner.classList.remove('show');
-                    localStorage.setItem('treeHole_pwa_dismissed', 'true');
-                };
-            }
-
-            // 等网页全部加载完毕后，启动 PWA 引擎
-            window.addEventListener('load', initPWA);
     </script>
 </body>
 
