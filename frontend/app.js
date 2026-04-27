@@ -17,6 +17,13 @@ let isAudioUnlocked = false;      // 移动端音频引擎是否已解锁
 let userSecretKey = null;         // 用户的专属 AES 密码（明文，仅内存中存留）
 let cryptoKeyObj = null;          // Web Crypto API 派生出的底层加密对象
 
+const API_BASE_URL = 'https://likeyouylr-tree-houselikeyouylr.hf.space';
+const TEXT_REQUEST_TIMEOUT_MS = 60000;
+const IMAGE_REQUEST_TIMEOUT_MS = 180000;
+const DEPTH_REQUEST_TIMEOUT_MS = 120000;
+const IMAGE_MAX_EDGE = 768;
+const IMAGE_JPEG_QUALITY = 0.72;
+
 /**
  * 容错 Markdown 解析
  * @param {string} text - 原始文本 
@@ -229,9 +236,10 @@ function previewImage() {
         document.getElementById('imagePreview').src = img.src; document.getElementById('imagePreviewContainer').style.display = 'block';
         img.onload = function () {
             const canvas = document.createElement('canvas');
-            canvas.width = img.width > img.height ? 1024 : Math.round(1024 * (img.width / img.height));
-            canvas.height = img.width > img.height ? Math.round(1024 / (img.width / img.height)) : 1024;
-            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height); currentImageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            const ratio = img.width / img.height;
+            canvas.width = img.width > img.height ? IMAGE_MAX_EDGE : Math.round(IMAGE_MAX_EDGE * ratio);
+            canvas.height = img.width > img.height ? Math.round(IMAGE_MAX_EDGE / ratio) : IMAGE_MAX_EDGE;
+            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height); currentImageDataUrl = canvas.toDataURL('image/jpeg', IMAGE_JPEG_QUALITY);
         };
     };
     reader.readAsDataURL(file);
@@ -245,13 +253,38 @@ function handleKeyPress(event) { if (event.key === 'Enter') sendMessage(); }
 // 🚀 4. 核心调度与 RAG 通信引擎
 // ==========================================
 
+async function fetchJsonWithTimeout(endpoint, payload, timeoutMs) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json();
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+function renderStaticPhoto(containerId, originalBase64) {
+    const container = document.getElementById(containerId);
+    if (container) container.innerHTML = "<img src='" + originalBase64 + "' style='max-width:260px; border-radius:8px;'>";
+}
+
 /**
  * 拦截并处理用户的聊天请求，包含离线嗅探、RAG 指令拼接和熔断保护
  */
 async function sendMessage() {
     unlockAudio();
     const inputField = document.getElementById('userInput'); const chatBox = document.getElementById('chatBox');
-    const text = inputField.value.trim(); if (!text && !currentImageDataUrl) return;
+    const text = inputField.value.trim();
+    const imageDataUrl = currentImageDataUrl;
+    if (!text && !imageDataUrl) return;
 
     // 弱网环境嗅探与熔断
     if (!navigator.onLine) {
@@ -264,11 +297,11 @@ async function sendMessage() {
 
     // 渲染用户输入
     const imageId = 'img-' + Date.now();
-    let imageHTML = currentImageDataUrl ? `<div id="${imageId}"></div>` : '';
+    let imageHTML = imageDataUrl ? `<div id="${imageId}"></div>` : '';
     chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${text}${imageHTML}</div></div>`);
     fullChatHistory += `用户说：${text}\n`; inputField.value = ''; chatBox.scrollTop = chatBox.scrollHeight;
 
-    if (currentImageDataUrl) create3DPhoto(imageId, currentImageDataUrl);
+    if (imageDataUrl) renderStaticPhoto(imageId, imageDataUrl);
 
     // 生成等待动画
     const loadingId = 'loading-' + Date.now();
@@ -284,19 +317,8 @@ async function sendMessage() {
         payloadText = text + memoryPrompt;
     }
 
-    // 设置 AbortController，图片需 60 秒视觉处理时间
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
     try {
-        const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/chat', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: payloadText, image_url: currentImageDataUrl }),
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        const data = await response.json();
+        const data = await fetchJsonWithTimeout('/chat', { text: payloadText, image_url: imageDataUrl }, imageDataUrl ? IMAGE_REQUEST_TIMEOUT_MS : TEXT_REQUEST_TIMEOUT_MS);
 
         // 动态场景嗅探：基于回复文字自动切换 CSS 流体背景
         const replyText = data.reply;
@@ -314,8 +336,9 @@ async function sendMessage() {
             const encryptedStr = await encryptData(fullChatHistory);
             if (encryptedStr) localStorage.setItem('treeHole_encrypted_history', encryptedStr);
         }
+
+        if (imageDataUrl) create3DPhoto(imageId, imageDataUrl);
     } catch (error) {
-        clearTimeout(timeoutId);
         if (error.name === 'AbortError') { document.getElementById(loadingId).innerText = "（小树的树枝被风吹断了信号，稍等再试哦 🍂）"; }
         else { document.getElementById(loadingId).innerText = "（哎呀，信号断啦，稍等再试哦）"; }
     }
@@ -339,18 +362,8 @@ async function getSummary() {
     document.getElementById('chatBox').insertAdjacentHTML('beforeend', `<div class="message summary-message" id="${loadingId}"><div class="typing-dots"><span></span><span></span><span></span></div></div>`);
     document.getElementById('chatBox').scrollTop = document.getElementById('chatBox').scrollHeight;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
     try {
-        const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/summary', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_history: fullChatHistory }),
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        let rawSummary = (await response.json()).summary;
+        let rawSummary = (await fetchJsonWithTimeout('/summary', { chat_history: fullChatHistory }, TEXT_REQUEST_TIMEOUT_MS)).summary;
         const match = rawSummary.match(/\[(theme-[a-z]+)\]/);
         if (match) { document.body.className = match[1]; rawSummary = rawSummary.replace(match[0], '').trim(); }
 
@@ -368,7 +381,6 @@ async function getSummary() {
             localStorage.setItem('treeHole_long_term_memory', encMem);
         }
     } catch (error) {
-        clearTimeout(timeoutId);
         document.getElementById(loadingId).innerText = error.name === 'AbortError' ? "生成超时啦，稍后再试哦 🍂" : "生成失败，请重试。";
     }
 }
@@ -388,18 +400,10 @@ async function create3DPhoto(containerId, originalBase64) {
 
     if (!navigator.onLine) { container.innerHTML = "<img src='" + originalBase64 + "' style='max-width:260px; border-radius:8px;'>"; return; }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
     try {
-        const response = await fetch('https://likeyouylr-tree-houselikeyouylr.hf.space/generate_depth', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image_url: originalBase64 }),
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        const data = await response.json();
-        const waitLoad = (src) => new Promise(res => { const img = new Image(); img.onload = () => res(img); img.src = src; });
+        const data = await fetchJsonWithTimeout('/generate_depth', { image_url: originalBase64 }, DEPTH_REQUEST_TIMEOUT_MS);
+        if (!data.depth_map) throw new Error(data.error || 'missing depth_map');
+        const waitLoad = (src) => new Promise((res, rej) => { const img = new Image(); img.onload = () => res(img); img.onerror = rej; img.src = src; });
         const [imgObj, depthObj] = await Promise.all([waitLoad(originalBase64), waitLoad(data.depth_map)]);
 
         const appWidth = 260; const appHeight = Math.round(appWidth / (imgObj.width / imgObj.height));
@@ -457,7 +461,7 @@ async function create3DPhoto(containerId, originalBase64) {
         container.addEventListener('touchend', () => applyTilt(0, 0));
         if (window.DeviceOrientationEvent) { window.addEventListener('deviceorientation', (e) => { if (e.gamma !== null && e.beta !== null) { applyTilt(Math.min(Math.max(e.gamma / 30, -1), 1), Math.min(Math.max((e.beta - 45) / 30, -1), 1)); } }); }
     } catch (err) {
-        clearTimeout(timeoutId); container.innerHTML = "<img src='" + originalBase64 + "' style='max-width:260px; border-radius:8px;'>";
+        renderStaticPhoto(containerId, originalBase64);
     }
 }
 
