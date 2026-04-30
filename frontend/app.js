@@ -33,7 +33,7 @@ const COMMA_MIN_CHARS = 5;
 const HARD_MAX_SEGMENT_CHARS = 40;
 
 const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-const API_BASE_URL = IS_LOCAL_DEV ? 'http://127.0.0.1:8000' : 'https://likeyouylr-tree-houselikeyouylr.hf.space';
+const API_BASE_URL = IS_LOCAL_DEV ? 'http://127.0.0.1:8000' : 'https://likeyouylr-tree-house-likeyouylr.hf.space';
 const TEXT_REQUEST_TIMEOUT_MS = 60000;
 const IMAGE_REQUEST_TIMEOUT_MS = 180000;
 const DEPTH_REQUEST_TIMEOUT_MS = 120000;
