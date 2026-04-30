@@ -4,8 +4,13 @@ export const config = {
 
 export default async function handler(req) {
     const { searchParams } = new URL(req.url);
-    const endpoint = searchParams.get('endpoint');
-    const targetUrl = `https://likeyouylr-tree-houselikeyouylr.hf.space${endpoint}`;
+    const endpointRaw = searchParams.get('endpoint') || '/';
+    const endpoint = endpointRaw.startsWith('/') ? endpointRaw : `/${endpointRaw}`;
+    const backendOrigins = [
+        process.env.HF_BACKEND_URL,
+        'https://likeyouylr-tree-house-likeyouylr.hf.space',
+        'https://likeyouylr-tree-houselikeyouylr.hf.space',
+    ].filter(Boolean);
 
     // 1. 克隆所有原始请求头，完美兼容图片的 multipart/form-data 或 image/jpeg
     const newHeaders = new Headers(req.headers);
@@ -13,25 +18,41 @@ export default async function handler(req) {
     newHeaders.delete('origin');
     newHeaders.delete('referer');
 
-    try {
-        // 2. 将数据流 (req.body) 原封不动地透传给后端，不再使用 req.text() 破坏二进制结构
-        const response = await fetch(targetUrl, {
-            method: req.method,
-            headers: newHeaders,
-            body: (req.method !== 'GET' && req.method !== 'HEAD') ? req.body : undefined,
-            redirect: 'manual',
-            duplex: 'half' // 允许流式传输
-        });
+    let lastError = null;
+    for (const origin of backendOrigins) {
+        const targetUrl = `${origin}${endpoint}`;
+        try {
+            // 2. 将数据流 (req.body) 原封不动地透传给后端，不再使用 req.text() 破坏二进制结构
+            const response = await fetch(targetUrl, {
+                method: req.method,
+                headers: newHeaders,
+                body: (req.method !== 'GET' && req.method !== 'HEAD') ? req.body : undefined,
+                redirect: 'manual',
+                duplex: 'half' // 允许流式传输
+            });
 
-        // 3. 将后端的响应流完整返回给前端
-        return new Response(response.body, {
-            status: response.status,
-            headers: response.headers
-        });
-    } catch (error) {
-        return new Response(JSON.stringify({ error: "代理层透传失败: " + error.message }), {
-            status: 502,
-            headers: { 'Content-Type': 'application/json' }
-        });
+            // 3. 404/5xx 允许尝试下一条后端地址（容灾）
+            if (response.status >= 500 || response.status === 404) {
+                lastError = new Error(`${origin} => HTTP ${response.status}`);
+                continue;
+            }
+
+            return new Response(response.body, {
+                status: response.status,
+                headers: response.headers
+            });
+        } catch (error) {
+            lastError = error;
+            continue;
+        }
     }
+
+    return new Response(JSON.stringify({
+        error: "代理层透传失败",
+        detail: lastError ? String(lastError.message || lastError) : "no backend available",
+        tried: backendOrigins
+    }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json' }
+    });
 }

@@ -33,12 +33,17 @@ const COMMA_MIN_CHARS = 5;
 const HARD_MAX_SEGMENT_CHARS = 40;
 
 const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-const API_BASE_URL = IS_LOCAL_DEV ? 'http://127.0.0.1:8000' : 'https://likeyouylr-tree-house-likeyouylr.hf.space';
+const API_BASE_URL = 'http://127.0.0.1:8000';
 const TEXT_REQUEST_TIMEOUT_MS = 60000;
 const IMAGE_REQUEST_TIMEOUT_MS = 180000;
 const DEPTH_REQUEST_TIMEOUT_MS = 120000;
 const IMAGE_MAX_EDGE = 768;
 const IMAGE_JPEG_QUALITY = 0.72;
+
+function buildApiUrl(endpoint) {
+    if (IS_LOCAL_DEV) return `${API_BASE_URL}${endpoint}`;
+    return `/api/proxy?endpoint=${encodeURIComponent(endpoint)}`;
+}
 
 /**
  * 容错 Markdown 解析
@@ -577,7 +582,7 @@ async function fetchJsonWithTimeout(endpoint, payload, timeoutMs) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        const response = await fetch(buildApiUrl(endpoint), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -602,7 +607,7 @@ async function fetchSSEWithTimeout(endpoint, payload, timeoutMs, { onDelta, onFi
     resetIdleTimeout();
 
     try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        const response = await fetch(buildApiUrl(endpoint), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
