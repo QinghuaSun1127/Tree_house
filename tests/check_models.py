@@ -1,7 +1,12 @@
 from openai import OpenAI
+import os
+
+api_key = os.getenv("SILICONFLOW_API_KEY")
+if not api_key:
+    raise RuntimeError("Missing required environment variable: SILICONFLOW_API_KEY")
 
 client = OpenAI(
-    api_key="sk-fetpzgjxohmtqihfscdmwhzdwejkjejngtorrjrfucwdufap", 
+    api_key=api_key,
     base_url="https://api.siliconflow.cn/v1"
 )
 

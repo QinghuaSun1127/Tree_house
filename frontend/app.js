@@ -3,11 +3,16 @@
  * @description 核心交互逻辑、AES-GCM 零信任加密引擎、PixiJS 3D/粒子系统与 RAG 时序记忆引擎。
  * @author 你的名字 / 树洞开发团队
  */
+console.log('[Treehouse] app.js loaded: 20260429-1447');
 
 // ==========================================
 // 📦 1. 全局状态与配置区
 // ==========================================
-let fullChatHistory = "";         // 记录本次会话的完整历史
+let fullChatHistory = "";         // 记录本次会话的完整历史（用于加密与情绪报告）
+/** 与后端 /chat 对齐的多轮结构：{role, content}[]，仅会话内、仅存 sessionStorage */
+let structuredChatHistory = [];
+const SS_KEY_TREEHOUSE_SESSION = 'treehouse_session_id';
+const SS_KEY_TREEHOUSE_TURNS = 'treehouse_chat_turns';
 let longTermMemory = [];          // 长期记忆库（存放过去的情绪总结）
 let currentImageDataUrl = null;   // 当前待发送的 Base64 图片数据
 let recognition;                  // Web Speech API 实例
@@ -16,8 +21,19 @@ let isVoiceOn = true;             // 语音播报开关状态
 let isAudioUnlocked = false;      // 移动端音频引擎是否已解锁
 let userSecretKey = null;         // 用户的专属 AES 密码（明文，仅内存中存留）
 let cryptoKeyObj = null;          // Web Crypto API 派生出的底层加密对象
+let ttsBuffer = '';               // 流式 TTS 文本缓冲区
+let ttsQueue = [];                // 待播报句子队列
+let ttsSpeaking = false;          // 当前是否在播报
+let requireTTSInteraction = false; // Safari 自动播放被拦截标记
+let currentTTSUtterance = null;   // 当前正在播报的 utterance
+const active3DEffects = new Map();
+let dynamicImageObserver = null;
 
-const API_BASE_URL = 'https://likeyouylr-tree-houselikeyouylr.hf.space';
+const COMMA_MIN_CHARS = 5;
+const HARD_MAX_SEGMENT_CHARS = 40;
+
+const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const API_BASE_URL = IS_LOCAL_DEV ? 'http://127.0.0.1:8000' : 'https://likeyouylr-tree-houselikeyouylr.hf.space';
 const TEXT_REQUEST_TIMEOUT_MS = 60000;
 const IMAGE_REQUEST_TIMEOUT_MS = 180000;
 const DEPTH_REQUEST_TIMEOUT_MS = 120000;
@@ -29,9 +45,247 @@ const IMAGE_JPEG_QUALITY = 0.72;
  * @param {string} text - 原始文本 
  * @returns {string} 渲染后的 HTML 或原文本（若解析器未加载）
  */
-function safeParseMD(text) {
-    try { return typeof marked !== 'undefined' ? marked.parse(text) : text; }
-    catch (e) { return text; }
+function safeParseMD(text, options = {}) {
+    const source = options.streaming ? normalizeStreamingMarkdown(text) : text;
+    try { return typeof marked !== 'undefined' ? marked.parse(source) : escapeHTML(source).replace(/\n/g, '<br>'); }
+    catch (e) { return escapeHTML(source).replace(/\n/g, '<br>'); }
+}
+
+function normalizeStreamingMarkdown(text) {
+    const fenceCount = (text.match(/```/g) || []).length;
+    return fenceCount % 2 === 1 ? `${text}\n\`\`\`` : text;
+}
+
+function escapeHTML(text) {
+    return text.replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
+
+function scrollChatToBottom(smooth = true) {
+    const chatBox = document.getElementById('chatBox');
+    if (!chatBox) return;
+    requestAnimationFrame(() => {
+        chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    });
+}
+
+function appendAnimatedChunk(targetBubble, chunk) {
+    if (!targetBubble || !chunk) return;
+    const span = document.createElement('span');
+    span.className = 'chunk-animate';
+    // 用 textContent 直接注入文本，保留空格/换行并避免 XSS
+    span.textContent = chunk;
+    targetBubble.appendChild(span);
+}
+
+function getTreehouseSessionId() {
+    let id = sessionStorage.getItem(SS_KEY_TREEHOUSE_SESSION);
+    if (!id) {
+        id = crypto.randomUUID();
+        sessionStorage.setItem(SS_KEY_TREEHOUSE_SESSION, id);
+    }
+    return id;
+}
+
+function hydrateStructuredChatHistory() {
+    try {
+        const raw = sessionStorage.getItem(SS_KEY_TREEHOUSE_TURNS);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) structuredChatHistory = parsed.slice(-30);
+    } catch (_) { /* ignore */ }
+}
+
+function persistStructuredChatHistory() {
+    try {
+        sessionStorage.setItem(SS_KEY_TREEHOUSE_TURNS, JSON.stringify(structuredChatHistory.slice(-30)));
+    } catch (_) { /* ignore */ }
+}
+
+function appendDiaryLog(text) {
+    const diaryList = document.getElementById('diaryLogList');
+    if (!diaryList || !text) return;
+    const item = document.createElement('div');
+    item.className = 'diary-item';
+    item.textContent = text.length > 44 ? `${text.slice(0, 44)}...` : text;
+    diaryList.prepend(item);
+    while (diaryList.children.length > 12) {
+        diaryList.removeChild(diaryList.lastElementChild);
+    }
+}
+
+function updateDesktopSceneCard(originalBase64) {
+    const card = document.getElementById('desktopSceneCard');
+    if (!card || !originalBase64) return;
+    card.innerHTML = `<img src="${originalBase64}" alt="最新场景图" class="desktop-scene-image"><div class="scene-caption">最新上传的情景卡</div>`;
+}
+
+function destroy3DEffect(containerId) {
+    const effect = active3DEffects.get(containerId);
+    if (!effect) return;
+    if (effect.cleanup) effect.cleanup();
+    active3DEffects.delete(containerId);
+}
+
+function ensureTTSResumeUI() {
+    if (document.getElementById('ttsResumeHint')) return;
+    const container = document.querySelector('.chat-container');
+    if (!container) return;
+    const hint = document.createElement('div');
+    hint.id = 'ttsResumeHint';
+    hint.className = 'tts-resume-hint';
+    hint.innerHTML = '<button type="button" class="tts-resume-btn" id="ttsResumeBtn">点击继续播放</button>';
+    container.appendChild(hint);
+    const btn = document.getElementById('ttsResumeBtn');
+    if (btn) btn.addEventListener('click', resumeTTSAfterInteraction);
+}
+
+function setTTSInteractionHint(visible) {
+    ensureTTSResumeUI();
+    const hint = document.getElementById('ttsResumeHint');
+    if (!hint) return;
+    hint.classList.toggle('visible', !!visible);
+}
+
+function setTTSSpeakingIndicator(active) {
+    const speakerBtn = document.getElementById('speakerBtn');
+    if (!speakerBtn) return;
+    speakerBtn.classList.toggle('tts-speaking', !!active);
+}
+
+function extractTTSSegments(input) {
+    const segments = [];
+    let buffer = (input || '').trimStart();
+    const isStrongPunc = ch => /[。！？!?\.]/.test(ch);
+    const isCommaPunc = ch => /[，,；;：:]/.test(ch);
+
+    while (buffer.length > 0) {
+        let cutIndex = -1;
+        for (let i = 0; i < buffer.length; i++) {
+            const ch = buffer[i];
+            if (isStrongPunc(ch)) {
+                cutIndex = i + 1;
+                break;
+            }
+            if (isCommaPunc(ch) && (i + 1) >= COMMA_MIN_CHARS) {
+                cutIndex = i + 1;
+                break;
+            }
+            if ((i + 1) >= HARD_MAX_SEGMENT_CHARS) {
+                let fallback = -1;
+                for (let j = i; j >= Math.max(0, i - 8); j--) {
+                    if (isStrongPunc(buffer[j]) || isCommaPunc(buffer[j]) || /\s/.test(buffer[j])) {
+                        fallback = j + 1;
+                        break;
+                    }
+                }
+                cutIndex = fallback > 0 ? fallback : HARD_MAX_SEGMENT_CHARS;
+                break;
+            }
+        }
+        if (cutIndex <= 0 || cutIndex > buffer.length) break;
+        const segment = buffer.slice(0, cutIndex).trim();
+        if (segment) segments.push(segment);
+        buffer = buffer.slice(cutIndex).trimStart();
+    }
+    return { segments, rest: buffer };
+}
+
+function handleTTSError(err, sentence) {
+    const errName = (err && (err.name || err.error)) || '';
+    if (errName === 'NotAllowedError' || errName === 'not-allowed') {
+        if (sentence) ttsQueue.unshift(sentence);
+        requireTTSInteraction = true;
+        setTTSInteractionHint(true);
+        ttsSpeaking = false;
+        setTTSSpeakingIndicator(false);
+        return;
+    }
+    ttsSpeaking = false;
+    setTTSSpeakingIndicator(false);
+    playNextTTS();
+}
+
+function playNextTTS() {
+    if (!isVoiceOn || ttsSpeaking || requireTTSInteraction) return;
+    if (!('speechSynthesis' in window)) return;
+    const sentence = ttsQueue.shift();
+    if (!sentence) {
+        setTTSSpeakingIndicator(false);
+        return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(sentence);
+    utterance.lang = 'zh-CN';
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    ttsSpeaking = true;
+    currentTTSUtterance = utterance;
+    setTTSSpeakingIndicator(true);
+
+    utterance.onend = function () {
+        ttsSpeaking = false;
+        currentTTSUtterance = null;
+        setTTSSpeakingIndicator(false);
+        playNextTTS();
+    };
+    utterance.onerror = function (event) {
+        currentTTSUtterance = null;
+        handleTTSError(event, sentence);
+    };
+
+    try {
+        window.speechSynthesis.speak(utterance);
+    } catch (err) {
+        currentTTSUtterance = null;
+        handleTTSError(err, sentence);
+    }
+}
+
+function pushChunkToTTS(chunk) {
+    if (!isVoiceOn || !chunk) return;
+    ttsBuffer += chunk;
+    const parsed = extractTTSSegments(ttsBuffer);
+    if (parsed.segments.length > 0) {
+        ttsQueue.push(...parsed.segments);
+        ttsBuffer = parsed.rest;
+        playNextTTS();
+    }
+}
+
+function flushTTSBuffer() {
+    if (!isVoiceOn) return;
+    const rest = ttsBuffer.trim();
+    ttsBuffer = '';
+    if (!rest) return;
+    const parsed = extractTTSSegments(rest);
+    if (parsed.segments.length > 0) ttsQueue.push(...parsed.segments);
+    if (parsed.rest) ttsQueue.push(parsed.rest);
+    playNextTTS();
+}
+
+function stopTTS() {
+    ttsBuffer = '';
+    ttsQueue = [];
+    ttsSpeaking = false;
+    currentTTSUtterance = null;
+    requireTTSInteraction = false;
+    setTTSInteractionHint(false);
+    setTTSSpeakingIndicator(false);
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+}
+
+function resumeTTSAfterInteraction() {
+    requireTTSInteraction = false;
+    setTTSInteractionHint(false);
+    playNextTTS();
 }
 
 // ==========================================
@@ -119,8 +373,13 @@ async function toggleSecurity() {
  */
 function startNewChat() {
     if (confirm("开启新对话将清空当前屏幕（历史记录依然安全保存在底层）。确定吗？")) {
-        fullChatHistory = ""; cryptoKeyObj = null; userSecretKey = null;
+        fullChatHistory = ""; structuredChatHistory = [];
+        sessionStorage.removeItem(SS_KEY_TREEHOUSE_SESSION);
+        sessionStorage.removeItem(SS_KEY_TREEHOUSE_TURNS);
+        cryptoKeyObj = null; userSecretKey = null;
         document.getElementById('chatBox').innerHTML = `<div class="message-wrapper ai-wrapper"><div class="avatar ai-avatar">🌳</div><div class="message ai-message">你好呀！我是你的专属树洞精灵『小树』✨<br><strong>今天想聊点什么呢？随时可以告诉我哦。</strong></div></div>`;
+        const diary = document.getElementById('diaryLogList');
+        if (diary) diary.innerHTML = '<div class="diary-item">新对话开始，记录新的心情轨迹。</div>';
         document.getElementById('lockBtn').style.display = 'inline-block';
         document.getElementById('newChatBtn').style.display = 'none';
         document.getElementById('exportBtn').style.display = 'none';
@@ -150,13 +409,18 @@ function destroyMemory() {
 
     localStorage.removeItem('treeHole_encrypted_history');
     localStorage.removeItem('treeHole_long_term_memory');
-    fullChatHistory = ""; longTermMemory = []; cryptoKeyObj = null; userSecretKey = null;
+    fullChatHistory = ""; structuredChatHistory = []; longTermMemory = [];
+    sessionStorage.removeItem(SS_KEY_TREEHOUSE_SESSION);
+    sessionStorage.removeItem(SS_KEY_TREEHOUSE_TURNS);
+    cryptoKeyObj = null; userSecretKey = null;
 
     document.getElementById('exportBtn').style.display = 'none';
     document.getElementById('destroyBtn').style.display = 'none';
     document.getElementById('newChatBtn').style.display = 'none';
     document.getElementById('lockBtn').style.display = 'inline-block';
     document.getElementById('chatBox').innerHTML = `<div class="message-wrapper ai-wrapper"><div class="avatar ai-avatar">🌳</div><div class="message ai-message" style="border-left: 4px solid #ef4444;">您的所有历史记忆已被彻底安全擦除。<br><strong>过去已成往事，现在，我们重新开始吧。✨</strong></div></div>`;
+    const diary = document.getElementById('diaryLogList');
+    if (diary) diary.innerHTML = '<div class="diary-item">记忆已清空，从这一刻重新出发。</div>';
 }
 
 /**
@@ -201,13 +465,17 @@ function unlockAudio() {
 /** 切换播报开关 */
 function toggleVoiceOutput() {
     isVoiceOn = !isVoiceOn; document.getElementById('speakerBtn').innerText = isVoiceOn ? '🔊' : '🔇';
-    if (!isVoiceOn && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+    if (!isVoiceOn) {
+        stopTTS();
+    } else {
+        resumeTTSAfterInteraction();
+    }
 }
 
 /** Web Speech API TTS (文字转语音) 包装 */
 function speakText(text) {
     if (!isVoiceOn || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
+    stopTTS();
     const utterance = new SpeechSynthesisUtterance(text.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27ff]/g, '').replace(/http[s]?:\/\/\S+/g, ''));
     utterance.lang = 'zh-CN'; window.speechSynthesis.speak(utterance);
 }
@@ -247,12 +515,64 @@ function previewImage() {
 
 function clearImage() { currentImageDataUrl = null; document.getElementById('imageInput').value = ''; document.getElementById('imagePreviewContainer').style.display = 'none'; }
 function sendQuickReply(text) { document.getElementById('userInput').value = text; sendMessage(); }
-function handleKeyPress(event) { if (event.key === 'Enter') sendMessage(); }
+function handleKeyPress(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+    }
+}
 
 // ==========================================
 // 🚀 4. 核心调度与 RAG 通信引擎
 // ==========================================
+// 新增：专门处理 SSE 流式输出的请求函数
+async function fetchStream(endpoint, payload, onChunkReceived) {
+    try {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
 
+        if (!response.ok) {
+            console.error("请求失败，状态码:", response.status);
+            return;
+        }
+
+        // 1. 获取流式读取器 (这是流式接收的核心)
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+
+        // 2. 开启无限循环，不断接收新的数据块
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break; // 如果后端说发完了，就退出循环
+
+            // 3. 把拿到的二进制数据解码成文字
+            const chunkString = decoder.decode(value, { stream: true });
+
+            // 4. 解析 SSE 格式 (把 "data: 你好\n\n" 变成 "你好")
+            const lines = chunkString.split('\n');
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const text = line.replace('data: ', '');
+                    
+                    // 拦截后端发送的结束信号或错误信号
+                    if (text === '[DONE]') return;
+                    if (text.startsWith('[ERROR]')) {
+                        console.error("后端流式报错:", text);
+                        return;
+                    }
+
+                    // 5. 将干净的文字传给外面的回调函数，用来更新 UI
+                    onChunkReceived(text);
+                }
+            }
+        }
+    } catch (error) {
+        console.error("流式接收发生网络错误:", error);
+    }
+}
 async function fetchJsonWithTimeout(endpoint, payload, timeoutMs) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -271,7 +591,86 @@ async function fetchJsonWithTimeout(endpoint, payload, timeoutMs) {
     }
 }
 
+async function fetchSSEWithTimeout(endpoint, payload, timeoutMs, { onDelta, onFirstByte, onDone }) {
+    const controller = new AbortController();
+    let timeoutId;
+    let sawFirstByte = false;
+    const resetIdleTimeout = () => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    };
+    resetIdleTimeout();
+
+    try {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.body) throw new Error('当前浏览器不支持流式响应');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            resetIdleTimeout();
+
+            if (!sawFirstByte) {
+                sawFirstByte = true;
+                if (onFirstByte) onFirstByte();
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const events = buffer.split('\n\n');
+            buffer = events.pop() || '';
+
+            for (const event of events) {
+                const dataLines = event
+                    .split('\n')
+                    .filter(line => line.startsWith('data:'))
+                    .map(line => line.slice(5).trimStart());
+
+                if (dataLines.length === 0) continue;
+
+                const data = dataLines.join('\n');
+                if (data === '[DONE]') {
+                    if (onDone) onDone();
+                    return;
+                }
+
+                if (data.startsWith('[ERROR]')) {
+                    throw new Error(data);
+                }
+                if (onDelta) {
+                    // 直接把拿到的纯文字传给外面的回调函数！
+                    onDelta(data); 
+                }
+            }
+        }
+        if (onDone) onDone();
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+function applyThemeFromReply(replyText) {
+    if (replyText.includes('抱抱') || replyText.includes('难过') || replyText.includes('累') || replyText.includes('压力') || replyText.includes('辛苦')) {
+        document.body.className = 'theme-gloomy';
+    } else if (replyText.includes('开心') || replyText.includes('棒') || replyText.includes('好') || replyText.includes('期待') || replyText.includes('笑')) {
+        document.body.className = 'theme-sunny';
+    } else {
+        document.body.className = '';
+    }
+}
+
 function renderStaticPhoto(containerId, originalBase64) {
+    destroy3DEffect(containerId);
     const container = document.getElementById(containerId);
     if (container) container.innerHTML = "<img src='" + originalBase64 + "' style='max-width:260px; border-radius:8px;'>";
 }
@@ -285,6 +684,7 @@ async function sendMessage() {
     const text = inputField.value.trim();
     const imageDataUrl = currentImageDataUrl;
     if (!text && !imageDataUrl) return;
+    stopTTS();
 
     // 弱网环境嗅探与熔断
     if (!navigator.onLine) {
@@ -299,14 +699,16 @@ async function sendMessage() {
     const imageId = 'img-' + Date.now();
     let imageHTML = imageDataUrl ? `<div id="${imageId}"></div>` : '';
     chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${text}${imageHTML}</div></div>`);
-    fullChatHistory += `用户说：${text}\n`; inputField.value = ''; chatBox.scrollTop = chatBox.scrollHeight;
+    fullChatHistory += `用户说：${text}\n`; inputField.value = ''; scrollChatToBottom(false);
+    appendDiaryLog(`你：${text}`);
 
     if (imageDataUrl) renderStaticPhoto(imageId, imageDataUrl);
+    if (imageDataUrl) updateDesktopSceneCard(imageDataUrl);
 
     // 生成等待动画
     const loadingId = 'loading-' + Date.now();
     chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai-wrapper"><div class="avatar ai-avatar">🌳</div><div class="message ai-message" id="${loadingId}"><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`);
-    chatBox.scrollTop = chatBox.scrollHeight;
+    scrollChatToBottom();
 
     // RAG: 注入长期情感状态向量
     let payloadText = text;
@@ -318,18 +720,47 @@ async function sendMessage() {
     }
 
     try {
-        const data = await fetchJsonWithTimeout('/chat', { text: payloadText, image_url: imageDataUrl }, imageDataUrl ? IMAGE_REQUEST_TIMEOUT_MS : TEXT_REQUEST_TIMEOUT_MS);
+        let replyText = '';
+        const targetBubble = document.getElementById(loadingId);
+        const chatPayload = {
+            session_id: getTreehouseSessionId(),
+            history: structuredChatHistory.slice(),
+            text,
+            ...(payloadText !== text ? { text_for_model: payloadText } : {}),
+            ...(imageDataUrl ? { image_url: imageDataUrl } : {})
+        };
 
-        // 动态场景嗅探：基于回复文字自动切换 CSS 流体背景
-        const replyText = data.reply;
-        if (replyText.includes('抱抱') || replyText.includes('难过') || replyText.includes('累') || replyText.includes('压力') || replyText.includes('辛苦')) {
-            document.body.className = 'theme-gloomy';
-        } else if (replyText.includes('开心') || replyText.includes('棒') || replyText.includes('好') || replyText.includes('期待') || replyText.includes('笑')) {
-            document.body.className = 'theme-sunny';
-        } else { document.body.className = ''; }
+        await fetchSSEWithTimeout('/chat', chatPayload, imageDataUrl ? IMAGE_REQUEST_TIMEOUT_MS : TEXT_REQUEST_TIMEOUT_MS, {
+            onFirstByte: () => {
+                targetBubble.innerHTML = '';
+                targetBubble.classList.add('streaming-chunk-mode');
+            },
+            onDelta: (chunk) => {
+                replyText += chunk;
+                appendAnimatedChunk(targetBubble, chunk);
+                pushChunkToTTS(chunk);
+                scrollChatToBottom();
+            },
+            onDone: () => {
+                targetBubble.classList.remove('streaming-chunk-mode');
+                const recallPattern = /上次|你曾说|记得你|说起过|那次|那件事|那件|你还说|之前聊过|那天你|那时候/;
+                targetBubble.classList.toggle('memory-recall-hint', recallPattern.test(replyText));
+                targetBubble.innerHTML = safeParseMD(replyText, { streaming: true });
+                flushTTSBuffer();
+            }
+        });
 
-        document.getElementById(loadingId).innerHTML = safeParseMD(replyText);
-        fullChatHistory += `小树回复：${replyText}\n`; speakText(replyText);
+        applyThemeFromReply(replyText);
+        structuredChatHistory.push({
+            role: 'user',
+            content: text + (imageDataUrl ? ' [附图]' : '')
+        });
+        structuredChatHistory.push({ role: 'assistant', content: replyText });
+        structuredChatHistory = structuredChatHistory.slice(-30);
+        persistStructuredChatHistory();
+
+        fullChatHistory += `小树回复：${replyText}\n`;
+        appendDiaryLog(`小树：${replyText}`);
 
         // 数据闭环：自动存盘
         if (cryptoKeyObj) {
@@ -339,10 +770,11 @@ async function sendMessage() {
 
         if (imageDataUrl) create3DPhoto(imageId, imageDataUrl);
     } catch (error) {
+        stopTTS();
         if (error.name === 'AbortError') { document.getElementById(loadingId).innerText = "（小树的树枝被风吹断了信号，稍等再试哦 🍂）"; }
-        else { document.getElementById(loadingId).innerText = "（哎呀，信号断啦，稍等再试哦）"; }
+        else { document.getElementById(loadingId).innerText = error.message || "（哎呀，信号断啦，稍等再试哦）"; }
     }
-    clearImage(); chatBox.scrollTop = chatBox.scrollHeight;
+    clearImage(); scrollChatToBottom();
 }
 
 /**
@@ -396,73 +828,223 @@ async function getSummary() {
  */
 async function create3DPhoto(containerId, originalBase64) {
     const container = document.getElementById(containerId);
+    if (!container) return;
+    destroy3DEffect(containerId);
     container.innerHTML = "<div style='font-size:0.9em; color:#888; padding:20px; text-align:center;'>正在解析 3D 深度...</div>";
 
-    if (!navigator.onLine) { container.innerHTML = "<img src='" + originalBase64 + "' style='max-width:260px; border-radius:8px;'>"; return; }
+    if (!navigator.onLine) { container.innerHTML = "<img src='" + originalBase64 + "' style='max-width:100%; border-radius:12px;'>"; return; }
 
     try {
-        const data = await fetchJsonWithTimeout('/generate_depth', { image_url: originalBase64 }, DEPTH_REQUEST_TIMEOUT_MS);
-        if (!data.depth_map) throw new Error(data.error || 'missing depth_map');
         const waitLoad = (src) => new Promise((res, rej) => { const img = new Image(); img.onload = () => res(img); img.onerror = rej; img.src = src; });
-        const [imgObj, depthObj] = await Promise.all([waitLoad(originalBase64), waitLoad(data.depth_map)]);
+        let depthMapUrl = null;
+        try {
+            const data = await fetchJsonWithTimeout('/generate_depth', { image_url: originalBase64 }, DEPTH_REQUEST_TIMEOUT_MS);
+            if (data && data.depth_map) depthMapUrl = data.depth_map;
+        } catch (err) {
+            depthMapUrl = null;
+        }
+        if (!depthMapUrl) {
+            depthMapUrl = await buildFallbackDepthMapDataUrl(originalBase64);
+        }
+        const [imgObj] = await Promise.all([waitLoad(originalBase64), waitLoad(depthMapUrl)]);
 
-        const appWidth = 260; const appHeight = Math.round(appWidth / (imgObj.width / imgObj.height));
         container.innerHTML = "";
-        const app = new PIXI.Application({ width: appWidth, height: appHeight, backgroundAlpha: 0 }); container.appendChild(app.view);
+        container.classList.add('threefx-container');
+        const stage = document.createElement('div');
+        stage.className = 'threefx-stage';
+        container.appendChild(stage);
 
-        const imgSprite = new PIXI.Sprite(PIXI.Texture.from(originalBase64)); const depthSprite = new PIXI.Sprite(PIXI.Texture.from(data.depth_map));
-        imgSprite.width = depthSprite.width = appWidth; imgSprite.height = depthSprite.height = appHeight;
-        app.stage.addChild(imgSprite); app.stage.addChild(depthSprite);
+        const containerWidth = Math.max(220, Math.min(container.clientWidth || 260, 420));
+        const appWidth = containerWidth;
+        const appHeight = Math.round(appWidth / (imgObj.width / imgObj.height));
 
-        const filter = new PIXI.DisplacementFilter(depthSprite); app.stage.filters = [filter]; filter.scale.x = 0; filter.scale.y = 0;
+        const app = new PIXI.Application({
+            width: appWidth,
+            height: appHeight,
+            backgroundAlpha: 0,
+            antialias: true,
+            powerPreference: 'high-performance',
+            resolution: Math.min(window.devicePixelRatio || 1, 2)
+        });
+        app.ticker.maxFPS = 60;
+        app.view.classList.add('threefx-canvas');
+        stage.appendChild(app.view);
 
-        // --- 引入基于主题的环境天气引擎 ---
+        const imgSprite = new PIXI.Sprite(PIXI.Texture.from(originalBase64));
+        const depthSprite = new PIXI.Sprite(PIXI.Texture.from(depthMapUrl));
+        imgSprite.width = depthSprite.width = appWidth;
+        imgSprite.height = depthSprite.height = appHeight;
+        app.stage.addChild(imgSprite);
+        app.stage.addChild(depthSprite);
+
+        const filter = new PIXI.DisplacementFilter(depthSprite);
+        filter.scale.x = 0;
+        filter.scale.y = 0;
+        app.stage.filters = [filter];
+
         const particleContainer = new PIXI.Container();
+        particleContainer.zIndex = 5;
+        app.stage.sortableChildren = true;
         app.stage.addChild(particleContainer);
+
         const particles = [];
         const currentTheme = document.body.className;
-
-        for (let i = 0; i < 50; i++) {
+        const particleCount = window.matchMedia('(min-width: 1024px)').matches ? 36 : 24;
+        for (let i = 0; i < particleCount; i++) {
             const p = new PIXI.Graphics();
             if (currentTheme === 'theme-gloomy') {
-                p.beginFill(0xffffff, 0.5 + Math.random() * 0.3); p.drawRect(0, 0, 1.5, 12 + Math.random() * 8); p.endFill();
-                p.type = 'rain'; p.vy = 8 + Math.random() * 5;
+                p.beginFill(0xffffff, 0.45 + Math.random() * 0.2);
+                p.drawRect(0, 0, 1.5, 9 + Math.random() * 6);
+                p.endFill();
+                p.type = 'rain';
+                p.vy = 5 + Math.random() * 3;
             } else {
-                const color = currentTheme === 'theme-sunny' ? 0xffeaa7 : 0xd1fae5;
-                p.beginFill(color, 0.4 + Math.random() * 0.4); p.drawCircle(0, 0, 1.5 + Math.random() * 2); p.endFill();
-                p.type = 'orb'; p.vy = -0.5 - Math.random() * 1;
+                const color = currentTheme === 'theme-sunny' ? 0xfff1b8 : 0xe2f6ec;
+                p.beginFill(color, 0.35 + Math.random() * 0.35);
+                p.drawCircle(0, 0, 1.2 + Math.random() * 1.4);
+                p.endFill();
+                p.type = 'orb';
+                p.vy = -0.3 - Math.random() * 0.7;
             }
-            p.x = Math.random() * appWidth; p.y = Math.random() * appHeight;
-            p.vx = 0; p.baseX = p.x; p.randomOffset = Math.random() * 100;
-            particleContainer.addChild(p); particles.push(p);
+            p.x = Math.random() * appWidth;
+            p.y = Math.random() * appHeight;
+            p.randomOffset = Math.random() * 100;
+            particleContainer.addChild(p);
+            particles.push(p);
         }
 
-        window.lastTiltX = 0;
+        const tilt = { x: 0, y: 0 };
+        const applyTilt = (x, y) => {
+            tilt.x = Math.max(-1, Math.min(1, x));
+            tilt.y = Math.max(-1, Math.min(1, y));
+            filter.scale.x = -tilt.x * 14;
+            filter.scale.y = -tilt.y * 14;
+        };
+
         app.ticker.add(() => {
             particles.forEach(p => {
                 p.y += p.vy;
                 if (p.type === 'rain') {
-                    p.x += window.lastTiltX * 8; p.rotation = -window.lastTiltX * 0.2;
-                    if (p.y > appHeight) { p.y = -20; p.x = Math.random() * appWidth; }
-                    if (p.x < -20) p.x = appWidth + 20; if (p.x > appWidth + 20) p.x = -20;
+                    p.x += tilt.x * 4.8;
+                    p.rotation = -tilt.x * 0.16;
+                    if (p.y > appHeight + 12) { p.y = -18; p.x = Math.random() * appWidth; }
+                    if (p.x < -18) p.x = appWidth + 18;
+                    if (p.x > appWidth + 18) p.x = -18;
                 } else {
-                    p.x += Math.sin(Date.now() / 1000 + p.randomOffset) * 0.3 + (window.lastTiltX * 2);
-                    if (p.y < -10) { p.y = appHeight + 10; p.x = Math.random() * appWidth; }
+                    p.x += Math.sin(Date.now() / 1200 + p.randomOffset) * 0.24 + (tilt.x * 1.4);
+                    if (p.y < -10) { p.y = appHeight + 8; p.x = Math.random() * appWidth; }
                 }
             });
         });
 
-        const applyTilt = (x, y) => { filter.scale.x = -x * 15; filter.scale.y = -y * 15; window.lastTiltX = x; };
+        const onMouseMove = (e) => {
+            const rect = stage.getBoundingClientRect();
+            applyTilt(((e.clientX - rect.left) / rect.width - 0.5) * 2, ((e.clientY - rect.top) / rect.height - 0.5) * 2);
+        };
+        const onMouseLeave = () => applyTilt(0, 0);
+        const onTouchMove = (e) => {
+            if (!e.touches || e.touches.length === 0) return;
+            const rect = stage.getBoundingClientRect();
+            const touch = e.touches[0];
+            applyTilt(((touch.clientX - rect.left) / rect.width - 0.5) * 2, ((touch.clientY - rect.top) / rect.height - 0.5) * 2);
+        };
+        const onTouchEnd = () => applyTilt(0, 0);
+        const onOrientation = (e) => {
+            if (typeof e.gamma !== 'number' || typeof e.beta !== 'number') return;
+            applyTilt(e.gamma / 30, (e.beta - 45) / 30);
+        };
+        const requestGyroPermission = async () => {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try { await DeviceOrientationEvent.requestPermission(); } catch (e) { }
+            }
+        };
 
-        // --- 多端控制监听绑定 ---
-        container.addEventListener('mousemove', (e) => { const rect = container.getBoundingClientRect(); applyTilt(((e.clientX - rect.left) / rect.width - 0.5) * 2, ((e.clientY - rect.top) / rect.height - 0.5) * 2); });
-        container.addEventListener('mouseleave', () => applyTilt(0, 0));
-        container.addEventListener('touchmove', (e) => { e.preventDefault(); const rect = container.getBoundingClientRect(); const touch = e.touches[0]; applyTilt(((touch.clientX - rect.left) / rect.width - 0.5) * 2, ((touch.clientY - rect.top) / rect.height - 0.5) * 2); });
-        container.addEventListener('touchend', () => applyTilt(0, 0));
-        if (window.DeviceOrientationEvent) { window.addEventListener('deviceorientation', (e) => { if (e.gamma !== null && e.beta !== null) { applyTilt(Math.min(Math.max(e.gamma / 30, -1), 1), Math.min(Math.max((e.beta - 45) / 30, -1), 1)); } }); }
+        stage.addEventListener('mousemove', onMouseMove);
+        stage.addEventListener('mouseleave', onMouseLeave);
+        stage.addEventListener('click', requestGyroPermission, { once: true });
+        stage.addEventListener('touchmove', onTouchMove, { passive: true });
+        stage.addEventListener('touchend', onTouchEnd, { passive: true });
+        window.addEventListener('deviceorientation', onOrientation, { passive: true });
+
+        const resizeObserver = new ResizeObserver(() => {
+            const nextWidth = Math.max(220, Math.min(container.clientWidth || appWidth, 420));
+            const nextHeight = Math.round(nextWidth / (imgObj.width / imgObj.height));
+            app.renderer.resize(nextWidth, nextHeight);
+            imgSprite.width = depthSprite.width = nextWidth;
+            imgSprite.height = depthSprite.height = nextHeight;
+        });
+        resizeObserver.observe(container);
+
+        active3DEffects.set(containerId, {
+            cleanup: () => {
+                resizeObserver.disconnect();
+                stage.removeEventListener('mousemove', onMouseMove);
+                stage.removeEventListener('mouseleave', onMouseLeave);
+                stage.removeEventListener('click', requestGyroPermission);
+                stage.removeEventListener('touchmove', onTouchMove);
+                stage.removeEventListener('touchend', onTouchEnd);
+                window.removeEventListener('deviceorientation', onOrientation);
+                app.destroy(true, { children: true, texture: false, baseTexture: false });
+                container.classList.remove('threefx-container');
+            }
+        });
     } catch (err) {
         renderStaticPhoto(containerId, originalBase64);
     }
+}
+
+function init3DEffect(imgElement) {
+    if (!imgElement) return;
+    const wrapper = imgElement.closest('[id^="img-"]');
+    if (!wrapper || wrapper.dataset.threefxReady === '1') return;
+    wrapper.dataset.threefxReady = '1';
+    create3DPhoto(wrapper.id, imgElement.src);
+}
+
+function initDynamic3DEffectObserver() {
+    if (dynamicImageObserver) return;
+    const chatBox = document.getElementById('chatBox');
+    if (!chatBox) return;
+    dynamicImageObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            mutation.addedNodes.forEach((node) => {
+                if (!(node instanceof HTMLElement)) return;
+                if (node.matches && node.matches('[id^="img-"] img')) init3DEffect(node);
+                const images = node.querySelectorAll ? node.querySelectorAll('[id^="img-"] img') : [];
+                images.forEach(img => init3DEffect(img));
+            });
+        });
+    });
+    dynamicImageObserver.observe(chatBox, { childList: true, subtree: true });
+}
+
+async function buildFallbackDepthMapDataUrl(originalBase64) {
+    const waitLoad = (src) => new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+    });
+    const img = await waitLoad(originalBase64);
+    const maxW = 220;
+    const w = Math.max(96, Math.min(maxW, img.width));
+    const h = Math.max(96, Math.round(w / (img.width / img.height)));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+        const lum = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        const depth = Math.min(255, Math.max(0, 235 - lum * 0.75));
+        data[i] = depth;
+        data[i + 1] = depth;
+        data[i + 2] = depth;
+    }
+    ctx.putImageData(imageData, 0, 0);
+    return canvas.toDataURL('image/png');
 }
 
 // ==========================================
@@ -506,4 +1088,9 @@ function initPWA() {
     closeBtn.onclick = () => { pwaBanner.classList.remove('show'); localStorage.setItem('treeHole_pwa_dismissed', 'true'); };
 }
 
-window.addEventListener('load', initPWA);
+window.addEventListener('load', () => {
+    hydrateStructuredChatHistory();
+    initPWA();
+    ensureTTSResumeUI();
+    initDynamic3DEffectObserver();
+});

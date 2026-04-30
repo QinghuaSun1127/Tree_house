@@ -41,19 +41,17 @@
 
 ---
 
-## 🚀 本地运行与部署 (Getting Started)
+## 🚀 快速部署入口
 
-### 前端部署
-本项目前端已完全实现静态化与 PWA 支持，推荐使用 **Vercel** 一键部署：
-1. Fork 本仓库。
-2. 在 Vercel 中导入项目。
-3. 将 **Root Directory** 设置为 `frontend`。
-4. 部署即可获得极致的边缘节点加速体验。
+你可以按这条链路完成完整上线：
 
-### 后端部署
-后端逻辑位于 `backend` 目录，推荐部署至 **Hugging Face Spaces** (Docker 模式)：
-1. 将 `backend/main.py` 及 `requirements.txt` 上传至 HF Space。
-2. 配置好对应的环境变量与 API Keys。
+1. **GitHub**：先把本地更新推到仓库。
+2. **Hugging Face Spaces (Backend)**：使用 `backend/` 目录中的 Docker 部署后端。
+3. **Vercel (Frontend)**：使用 `frontend/` 目录部署静态前端并指向你的 HF 后端地址。
+
+详细的逐步教程（含命令、环境变量、常见报错排查）在：
+
+- [`DEPLOYMENT.md`](./DEPLOYMENT.md)
 
 ---
 

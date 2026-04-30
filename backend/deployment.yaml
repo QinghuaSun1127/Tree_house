@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: treehouse-deployment
+spec:
+  replicas: 3  # 启动 3 个副本扛并发
+  selector:
+    matchLabels:
+      app: treehouse
+  template:
+    metadata:
+      labels:
+        app: treehouse
+    spec:
+      containers:
+      - name: treehouse-container
+        image: treehouse-backend:v1
+        imagePullPolicy: IfNotPresent # 关键：告诉 K8S 不要去外网下载，直接用本地刚打包的镜像
+        ports:
+        - containerPort: 7860 # 对应你 Dockerfile 里的端口
+        env:
+        - name: SILICONFLOW_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: treehouse-secrets
+              key: SILICONFLOW_API_KEY

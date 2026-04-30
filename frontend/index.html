@@ -16,7 +16,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="小树">
 
-    <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="./styles.css?v=20260429-1447">
 </head>
 
 <body>
@@ -31,53 +31,67 @@
         </div>
     </div>
 
-    <div class="chat-container">
-        <div class="chat-header">
-            <span>🌳 树洞</span>
-            <div class="header-btns">
-                <button class="summary-btn" id="lockBtn" onclick="toggleSecurity()">🔐 解锁记忆</button>
-                <button class="summary-btn" id="newChatBtn" style="display:none;" onclick="startNewChat()">✨ 新局</button>
-                <button class="summary-btn" id="exportBtn" style="display:none;" onclick="exportData()">⬇️ 导出</button>
-                <button class="summary-btn danger-btn" id="destroyBtn" style="display:none;"
-                    onclick="destroyMemory()">🗑️ 擦除</button>
-                <button class="summary-btn" id="summaryBtn" onclick="getSummary()">📊 情绪卡</button>
+    <div class="app-shell">
+        <aside class="diary-sidebar" id="diarySidebar">
+            <div class="diary-title">Diary Log</div>
+            <div class="diary-list" id="diaryLogList">
+                <div class="diary-item">今天，和小树聊聊你的心情吧。</div>
             </div>
-        </div>
+        </aside>
 
-        <div class="chat-box" id="chatBox">
-            <div class="message-wrapper ai-wrapper">
-                <div class="avatar ai-avatar">🌳</div>
-                <div class="message ai-message">
-                    你好呀！我是你的专属树洞精灵『小树』✨<br>
-                    <strong>今天想聊点什么呢？随时可以告诉我哦。</strong><br>
-                    <span style="font-size: 0.8em; color:#888;">(当前为新对话模式，点击右上角可恢复或保存历史记忆)</span>
+        <div class="chat-container">
+            <div class="chat-header">
+                <span>🌳 树洞</span>
+                <div class="header-btns">
+                    <button class="summary-btn" id="lockBtn" onclick="toggleSecurity()">🔐 解锁记忆</button>
+                    <button class="summary-btn" id="newChatBtn" style="display:none;" onclick="startNewChat()">✨ 新局</button>
+                    <button class="summary-btn" id="exportBtn" style="display:none;" onclick="exportData()">⬇️ 导出</button>
+                    <button class="summary-btn danger-btn" id="destroyBtn" style="display:none;"
+                        onclick="destroyMemory()">🗑️ 擦除</button>
+                    <button class="summary-btn" id="summaryBtn" onclick="getSummary()">📊 情绪卡</button>
                 </div>
             </div>
-            <div class="quick-replies" id="quickReplies">
-                <button class="quick-btn" onclick="sendQuickReply('哎，我今天真的好累哦😔')">今天好累哦 😔</button>
-                <button class="quick-btn" onclick="sendQuickReply('遇到一件超开心的事情！✨')">分享开心事 ✨</button>
-                <button class="quick-btn" onclick="handleCameraClick()">发张照片看看 📷</button>
+
+            <div class="chat-box" id="chatBox">
+                <div class="message-wrapper ai-wrapper">
+                    <div class="avatar ai-avatar">🌳</div>
+                    <div class="message ai-message">
+                        你好呀！我是你的专属树洞精灵『小树』✨<br>
+                        <strong>今天想聊点什么呢？随时可以告诉我哦。</strong><br>
+                        <span style="font-size: 0.8em; color:#888;">(当前为新对话模式，点击右上角可恢复或保存历史记忆)</span>
+                    </div>
+                </div>
+                <div class="quick-replies" id="quickReplies">
+                    <button class="quick-btn" onclick="sendQuickReply('哎，我今天真的好累哦😔')">今天好累哦 😔</button>
+                    <button class="quick-btn" onclick="sendQuickReply('遇到一件超开心的事情！✨')">分享开心事 ✨</button>
+                    <button class="quick-btn" onclick="handleCameraClick()">发张照片看看 📷</button>
+                </div>
+            </div>
+
+            <div id="imagePreviewContainer" class="image-preview-container" style="display: none;">
+                <img id="imagePreview" alt="图片预览">
+                <span class="cancel-image-btn" onclick="clearImage()">✖ 取消图片</span>
+            </div>
+
+            <div class="input-area">
+                <div class="upload-btn-group">
+                    <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="previewImage()">
+                    <button class="upload-btn" onclick="handleCameraClick()" title="发照片">📷</button>
+                    <button class="upload-btn" id="micBtn" onclick="toggleVoice()" title="语音输入">🎤</button>
+                    <button class="upload-btn" id="speakerBtn" onclick="toggleVoiceOutput()" title="语音播报开关">🔊</button>
+                </div>
+                <textarea id="userInput" placeholder="写下情绪或发张照片..." onkeydown="handleKeyPress(event)" rows="1"></textarea>
+                <button class="send-btn" id="sendMsgBtn" onclick="sendMessage()">发送</button>
             </div>
         </div>
 
-        <div id="imagePreviewContainer" class="image-preview-container" style="display: none;">
-            <img id="imagePreview" alt="图片预览">
-            <span class="cancel-image-btn" onclick="clearImage()">✖ 取消图片</span>
-        </div>
-
-        <div class="input-area">
-            <div class="upload-btn-group">
-                <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="previewImage()">
-                <button class="upload-btn" onclick="handleCameraClick()" title="发照片">📷</button>
-                <button class="upload-btn" id="micBtn" onclick="toggleVoice()" title="语音输入">🎤</button>
-                <button class="upload-btn" id="speakerBtn" onclick="toggleVoiceOutput()" title="语音播报开关">🔊</button>
-            </div>
-            <input type="text" id="userInput" placeholder="写下情绪或发张照片..." onkeypress="handleKeyPress(event)">
-            <button class="send-btn" id="sendMsgBtn" onclick="sendMessage()">发送</button>
-        </div>
+        <aside class="desktop-scene-panel" id="desktopScenePanel">
+            <div class="scene-title">Scene Card</div>
+            <div class="scene-card" id="desktopSceneCard">发送图片后，这里会显示 3D 情景预览。</div>
+        </aside>
     </div>
 
-    <script src="./app.js"></script>
+    <script src="./app.js?v=20260429-1447"></script>
     
 </body>
 </html>

@@ -29,7 +29,7 @@ body.theme-sunny {
    📐 2. 基础布局与容器 (Base & Layout)
    ========================================== */
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Segoe UI", sans-serif;
     background: var(--bg-gradient);
     background-size: 200% 200%;
     animation: gradientBreathe 12s ease infinite;
@@ -44,6 +44,13 @@ body {
     overflow: hidden;
 }
 
+.app-shell {
+    width: 100%;
+    height: 100dvh;
+    display: grid;
+    grid-template-columns: 1fr;
+}
+
 .chat-container {
     width: 100%;
     max-width: 500px;
@@ -53,6 +60,62 @@ body {
     flex-direction: column;
     position: relative;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.diary-sidebar,
+.desktop-scene-panel {
+    display: none;
+}
+
+.diary-title,
+.scene-title {
+    font-size: 0.84rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6b7280;
+    margin-bottom: 12px;
+}
+
+.diary-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.diary-item {
+    border-radius: 14px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.68);
+    border: 1px solid rgba(255, 255, 255, 0.66);
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
+    color: #334155;
+    font-size: 0.86rem;
+    line-height: 1.55;
+}
+
+.scene-card {
+    border-radius: 18px;
+    padding: 16px;
+    min-height: 180px;
+    background: rgba(255, 255, 255, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.64);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+    color: #64748b;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    justify-content: center;
+}
+
+.desktop-scene-image {
+    width: 100%;
+    border-radius: 14px;
+    object-fit: cover;
+}
+
+.scene-caption {
+    font-size: 0.84rem;
+    color: #475569;
 }
 
 /* ==========================================
@@ -94,6 +157,11 @@ body {
 
 .summary-btn:active {
     transform: scale(0.95);
+}
+
+#speakerBtn.tts-speaking {
+    animation: speakerPulse 1.6s ease-out infinite;
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.75);
 }
 
 .danger-btn {
@@ -170,6 +238,38 @@ body {
     border-top-left-radius: 2px;
 }
 
+.ai-message.streaming-chunk-mode {
+    white-space: pre-wrap;
+}
+
+/* 当回复明显在呼应过往细节时，轻微呼吸感（非干扰） */
+.ai-message.memory-recall-hint {
+    animation: memoryRecallSoft 5s ease-out 1 forwards;
+}
+
+@keyframes memoryRecallSoft {
+    0% {
+        border-color: #eee;
+        box-shadow: 0 0 0 rgba(34, 197, 94, 0);
+    }
+    25% {
+        border-color: rgba(134, 239, 172, 0.85);
+        box-shadow: 0 2px 14px rgba(34, 197, 94, 0.12);
+    }
+    100% {
+        border-color: #eee;
+        box-shadow: 0 0 0 rgba(34, 197, 94, 0);
+    }
+}
+
+.chunk-animate {
+    display: inline;
+    white-space: pre-wrap;
+    opacity: 0;
+    transform: translateY(6px);
+    animation: fadeInUp 400ms cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
 /* Markdown 格式化 */
 .message p {
     margin: 0 0 8px 0;
@@ -187,6 +287,42 @@ body {
 .message ol {
     margin: 0;
     padding-left: 20px;
+}
+
+.tts-resume-hint {
+    position: absolute;
+    left: 50%;
+    bottom: 86px;
+    transform: translateX(-50%) translateY(8px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    z-index: 30;
+}
+
+.tts-resume-hint.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+}
+
+.tts-resume-btn {
+    border: none;
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 0.82em;
+    color: #374151;
+    background: rgba(255, 255, 255, 0.58);
+    box-shadow: 0 8px 24px rgba(17, 24, 39, 0.14);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    cursor: pointer;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.tts-resume-btn:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.76);
 }
 
 .summary-message {
@@ -221,13 +357,35 @@ body {
 
 [id^="img-"] {
     margin-top: 8px;
-    border-radius: 8px;
+    border-radius: 12px;
     overflow: hidden;
     touch-action: none;
-    max-width: 260px;
+    max-width: min(360px, 100%);
+    width: 100%;
     display: inline-block;
-    background-color: #eee;
+    position: relative;
+    background-color: #eef2f7;
     line-height: 0;
+}
+
+.threefx-container {
+    min-height: 120px;
+}
+
+.threefx-stage {
+    position: relative;
+    width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.threefx-canvas {
+    display: block;
+    width: 100% !important;
+    height: auto !important;
+    position: relative;
+    z-index: 2;
+    pointer-events: none;
 }
 
 .input-area {
@@ -279,6 +437,8 @@ body {
     border-radius: 19px !important;
     font-size: 16px !important;
     outline: none !important;
+    resize: none !important;
+    white-space: pre-wrap !important;
 }
 
 .send-btn {
@@ -343,6 +503,22 @@ body {
     100% {
         background-position: 0% 50%;
     }
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes speakerPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.08); }
 }
 
 .recording {
@@ -416,6 +592,89 @@ body {
 
     40% {
         transform: scale(1);
+    }
+}
+
+@media (min-width: 1024px) {
+    body {
+        align-items: center;
+        padding: 24px;
+    }
+
+    .app-shell {
+        width: min(1400px, 100%);
+        height: min(920px, calc(100dvh - 48px));
+        margin: 0 auto;
+        grid-template-columns: minmax(220px, 1fr) minmax(800px, 1000px) minmax(260px, 0.75fr);
+        gap: 22px;
+    }
+
+    .diary-sidebar,
+    .desktop-scene-panel {
+        display: block;
+        padding: 22px 18px;
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.42);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border: 1px solid rgba(255, 255, 255, 0.56);
+        box-shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+        overflow: auto;
+    }
+
+    .chat-container {
+        max-width: 1000px;
+        width: 100%;
+        height: 100%;
+        border-radius: 28px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.86);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+    }
+
+    .chat-box {
+        padding: 24px 28px 120px;
+    }
+
+    .message {
+        max-width: 70%;
+        line-height: 1.72;
+        letter-spacing: 0.012em;
+        font-size: 0.98rem;
+    }
+
+    [id^="img-"] {
+        max-width: min(420px, 100%);
+    }
+
+    .chat-container .input-area {
+        position: absolute !important;
+        left: 24px !important;
+        right: 24px !important;
+        bottom: 18px !important;
+        width: auto !important;
+        border-radius: 999px !important;
+        background: rgba(255, 255, 255, 0.66) !important;
+        border: 1px solid rgba(255, 255, 255, 0.72) !important;
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
+        box-shadow: 0 16px 34px rgba(15, 23, 42, 0.11) !important;
+        padding: 10px 12px !important;
+    }
+
+    .chat-container #userInput {
+        min-height: 40px !important;
+        max-height: 120px !important;
+        line-height: 1.5 !important;
+        border-radius: 20px !important;
+    }
+
+    .image-preview-container {
+        left: 24px !important;
+        right: 24px !important;
+        width: auto !important;
+        border-radius: 16px 16px 0 0 !important;
     }
 }
 

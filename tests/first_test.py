@@ -1,9 +1,13 @@
 from openai import OpenAI
+import os
 
-# 1. 初始化客户端：把刚才保存的秘钥填在引号里
-# 请将 'sk-这里填入你刚才复制的APIKey' 替换为你真实的 Key
+api_key = os.getenv("SILICONFLOW_API_KEY")
+if not api_key:
+    raise RuntimeError("Missing required environment variable: SILICONFLOW_API_KEY")
+
+# 1. 初始化客户端
 client = OpenAI(
-    api_key="sk-fetpzgjxohmtqihfscdmwhzdwejkjejngtorrjrfucwdufap", 
+    api_key=api_key,
     base_url="https://api.siliconflow.cn/v1"
 )
 
