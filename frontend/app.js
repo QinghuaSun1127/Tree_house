@@ -3,7 +3,7 @@
  * @description 核心交互逻辑、AES-GCM 零信任加密引擎、PixiJS 3D/粒子系统与 RAG 时序记忆引擎。
  * @author 你的名字 / 树洞开发团队
  */
-console.log('[Treehouse] app.js loaded: 20260429-1447');
+console.log('[Treehouse] app.js loaded: 20260525-api-fix');
 
 // ==========================================
 // 📦 1. 全局状态与配置区
@@ -34,15 +34,62 @@ const HARD_MAX_SEGMENT_CHARS = 40;
 
 const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const API_BASE_URL = 'http://127.0.0.1:8000';
+/** 线上 Hugging Face 后端（已开启 CORS，优先直连，避免 Vercel Edge 代理 504） */
+const HF_BACKEND_URL = 'https://likeyouylr-tree-houselikeyouylr.hf.space';
+const API_RETRY_STATUSES = new Set([404, 502, 503, 504]);
 const TEXT_REQUEST_TIMEOUT_MS = 60000;
 const IMAGE_REQUEST_TIMEOUT_MS = 180000;
 const DEPTH_REQUEST_TIMEOUT_MS = 120000;
 const IMAGE_MAX_EDGE = 768;
 const IMAGE_JPEG_QUALITY = 0.72;
 
-function buildApiUrl(endpoint) {
-    if (IS_LOCAL_DEV) return `${API_BASE_URL}${endpoint}`;
-    return `/api/proxy?endpoint=${encodeURIComponent(endpoint)}`;
+function getApiUrlCandidates(endpoint) {
+    const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    if (IS_LOCAL_DEV) return [`${API_BASE_URL}${path}`];
+    return [
+        `${HF_BACKEND_URL}${path}`,
+        `/api/proxy?endpoint=${encodeURIComponent(path)}`,
+    ];
+}
+
+function humanizeApiError(err) {
+    const msg = (err && err.message) || '';
+    if (err && err.name === 'AbortError') return err;
+    if (/HTTP\s*504/i.test(msg) || /504/.test(msg)) {
+        return new Error('小树这边信号有点慢（网关超时），请稍后再发一条试试 🍂');
+    }
+    if (/HTTP\s*502/i.test(msg) || /failed to fetch|load failed|networkerror/i.test(msg)) {
+        return new Error('暂时连不上小树的后台，请检查网络后重试 📡');
+    }
+    if (/HTTP\s*404/i.test(msg)) {
+        return new Error('后端地址不可用，请确认部署配置后重试');
+    }
+    return err || new Error('请求失败，请稍后重试');
+}
+
+async function fetchWithApiFallback(endpoint, init) {
+    const candidates = getApiUrlCandidates(endpoint);
+    let lastError = null;
+    for (let i = 0; i < candidates.length; i++) {
+        const url = candidates[i];
+        try {
+            const response = await fetch(url, init);
+            const canRetry = i < candidates.length - 1 && API_RETRY_STATUSES.has(response.status);
+            if (canRetry) {
+                lastError = new Error(`HTTP ${response.status}`);
+                console.warn('[Treehouse] API fallback:', url, response.status);
+                continue;
+            }
+            return response;
+        } catch (error) {
+            lastError = error;
+            if (i < candidates.length - 1) {
+                console.warn('[Treehouse] API fallback after error:', url, error);
+                continue;
+            }
+        }
+    }
+    throw humanizeApiError(lastError);
 }
 
 function sanitizeHTML(html) {
@@ -614,14 +661,14 @@ async function fetchJsonWithTimeout(endpoint, payload, timeoutMs) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const response = await fetch(buildApiUrl(endpoint), {
+        const response = await fetchWithApiFallback(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
             signal: controller.signal
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw humanizeApiError(new Error(`HTTP ${response.status}`));
         return await response.json();
     } finally {
         clearTimeout(timeoutId);
@@ -639,14 +686,14 @@ async function fetchSSEWithTimeout(endpoint, payload, timeoutMs, { onDelta, onFi
     resetIdleTimeout();
 
     try {
-        const response = await fetch(buildApiUrl(endpoint), {
+        const response = await fetchWithApiFallback(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
             signal: controller.signal
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw humanizeApiError(new Error(`HTTP ${response.status}`));
         if (!response.body) throw new Error('当前浏览器不支持流式响应');
 
         const reader = response.body.getReader();
@@ -808,8 +855,12 @@ async function sendMessage() {
         if (imageDataUrl) create3DPhoto(imageId, imageDataUrl);
     } catch (error) {
         stopTTS();
-        if (error.name === 'AbortError') { document.getElementById(loadingId).innerText = "（小树的树枝被风吹断了信号，稍等再试哦 🍂）"; }
-        else { document.getElementById(loadingId).innerText = error.message || "（哎呀，信号断啦，稍等再试哦）"; }
+        const friendly = humanizeApiError(error);
+        if (friendly.name === 'AbortError') {
+            document.getElementById(loadingId).innerText = "（小树的树枝被风吹断了信号，稍等再试哦 🍂）";
+        } else {
+            document.getElementById(loadingId).innerText = friendly.message || "（哎呀，信号断啦，稍等再试哦）";
+        }
     }
     clearImage(); scrollChatToBottom();
 }
@@ -850,7 +901,10 @@ async function getSummary() {
             localStorage.setItem('treeHole_long_term_memory', encMem);
         }
     } catch (error) {
-        document.getElementById(loadingId).innerText = error.name === 'AbortError' ? "生成超时啦，稍后再试哦 🍂" : "生成失败，请重试。";
+        const friendly = humanizeApiError(error);
+        document.getElementById(loadingId).innerText = friendly.name === 'AbortError'
+            ? "生成超时啦，稍后再试哦 🍂"
+            : (friendly.message || "生成失败，请重试。");
     }
 }
 
