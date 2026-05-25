@@ -193,9 +193,15 @@ const API_BASE_URL = IS_LOCAL_DEV
 - `requirements.txt` 依赖安装超时/失败
 - 代码语法错误导致容器启动失败
 
-### 5.3 Vercel 能打开但请求失败
+### 5.3 Vercel 能打开但请求失败 / 出现 HTTP 504
 
-通常是 `API_BASE_URL` 仍指向旧地址或错误域名。
+常见原因：
+
+1. `HF_BACKEND_URL` 写错（多了一个连字符的 Space 名会 404）
+2. 仅走 Vercel Edge 代理且上游冷启动过慢（前端已默认直连 HF，代理为备用）
+3. Hugging Face 未配置 `SILICONFLOW_API_KEY` 导致后端异常
+
+请先在浏览器 Network 里确认 `/chat` 是否打到 `*.hf.space`，而不是长时间卡在 `/api/proxy` 后 504。
 
 ---
 
