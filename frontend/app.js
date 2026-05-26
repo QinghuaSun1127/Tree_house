@@ -3,7 +3,7 @@
  * @description 核心交互逻辑、AES-GCM 零信任加密引擎、PixiJS 3D/粒子系统与 RAG 时序记忆引擎。
  * @author 你的名字 / 树洞开发团队
  */
-console.log('[Treehouse] app.js loaded: 20260525-api-fix');
+console.log('[Treehouse] app.js loaded: 20260526-maint-1');
 
 // ==========================================
 // 📦 1. 全局状态与配置区
@@ -609,54 +609,6 @@ function handleKeyPress(event) {
 // ==========================================
 // 🚀 4. 核心调度与 RAG 通信引擎
 // ==========================================
-// 新增：专门处理 SSE 流式输出的请求函数
-async function fetchStream(endpoint, payload, onChunkReceived) {
-    try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            console.error("请求失败，状态码:", response.status);
-            return;
-        }
-
-        // 1. 获取流式读取器 (这是流式接收的核心)
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-
-        // 2. 开启无限循环，不断接收新的数据块
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break; // 如果后端说发完了，就退出循环
-
-            // 3. 把拿到的二进制数据解码成文字
-            const chunkString = decoder.decode(value, { stream: true });
-
-            // 4. 解析 SSE 格式 (把 "data: 你好\n\n" 变成 "你好")
-            const lines = chunkString.split('\n');
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const text = line.replace('data: ', '');
-                    
-                    // 拦截后端发送的结束信号或错误信号
-                    if (text === '[DONE]') return;
-                    if (text.startsWith('[ERROR]')) {
-                        console.error("后端流式报错:", text);
-                        return;
-                    }
-
-                    // 5. 将干净的文字传给外面的回调函数，用来更新 UI
-                    onChunkReceived(text);
-                }
-            }
-        }
-    } catch (error) {
-        console.error("流式接收发生网络错误:", error);
-    }
-}
 async function fetchJsonWithTimeout(endpoint, payload, timeoutMs) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
