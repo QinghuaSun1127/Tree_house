@@ -45,6 +45,24 @@ function buildApiUrl(endpoint) {
     return `/api/proxy?endpoint=${encodeURIComponent(endpoint)}`;
 }
 
+function sanitizeHTML(html) {
+    try {
+        const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+        doc.querySelectorAll('script, style, iframe, object, embed, link, meta').forEach(n => n.remove());
+        doc.querySelectorAll('*').forEach(el => {
+            [...el.attributes].forEach(attr => {
+                const name = attr.name.toLowerCase();
+                const value = String(attr.value || '');
+                if (name.startsWith('on')) el.removeAttribute(attr.name);
+                if ((name === 'href' || name === 'src') && /^\s*javascript:/i.test(value)) el.removeAttribute(attr.name);
+            });
+        });
+        return doc.body.innerHTML;
+    } catch (_) {
+        return escapeHTML(String(html || ''));
+    }
+}
+
 /**
  * 容错 Markdown 解析
  * @param {string} text - 原始文本 
@@ -52,7 +70,7 @@ function buildApiUrl(endpoint) {
  */
 function safeParseMD(text, options = {}) {
     const source = options.streaming ? normalizeStreamingMarkdown(text) : text;
-    try { return typeof marked !== 'undefined' ? marked.parse(source) : escapeHTML(source).replace(/\n/g, '<br>'); }
+    try { return typeof marked !== 'undefined' ? sanitizeHTML(marked.parse(source)) : escapeHTML(source).replace(/\n/g, '<br>'); }
     catch (e) { return escapeHTML(source).replace(/\n/g, '<br>'); }
 }
 
@@ -69,6 +87,18 @@ function escapeHTML(text) {
         '"': '&quot;',
         "'": '&#39;'
     }[char]));
+}
+
+function parseHistoryStringToTurns(historyStr) {
+    const out = [];
+    const lines = String(historyStr || '').split('\n');
+    for (const line of lines) {
+        const trimmed = (line || '').trim();
+        if (!trimmed) continue;
+        if (trimmed.startsWith('用户说：')) out.push({ role: 'user', content: trimmed.substring(4) });
+        else if (trimmed.startsWith('小树回复：')) out.push({ role: 'assistant', content: trimmed.substring(5) });
+    }
+    return out;
 }
 
 function scrollChatToBottom(smooth = true) {
@@ -354,6 +384,8 @@ async function toggleSecurity() {
         if (decrypted !== null) {
             fullChatHistory = decrypted + "\n" + fullChatHistory;
             renderHistoryToScreen(fullChatHistory);
+            structuredChatHistory = parseHistoryStringToTurns(fullChatHistory).slice(-30);
+            persistStructuredChatHistory();
             alert("✅ 历史记忆解密成功！后续聊天将自动加密保存。");
         } else {
             alert("❌ 密码错误！"); cryptoKeyObj = null; userSecretKey = null; return;
@@ -438,7 +470,7 @@ function renderHistoryToScreen(historyStr) {
     for (let line of lines) {
         if (!line.trim()) continue;
         if (line.startsWith('用户说：')) {
-            chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${line.substring(4)}</div></div>`);
+            chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${escapeHTML(line.substring(4))}</div></div>`);
         } else if (line.startsWith('小树回复：')) {
             chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai-wrapper"><div class="avatar ai-avatar">🌳</div><div class="message ai-message">${safeParseMD(line.substring(5))}</div></div>`);
         }
@@ -703,7 +735,7 @@ async function sendMessage() {
     // 渲染用户输入
     const imageId = 'img-' + Date.now();
     let imageHTML = imageDataUrl ? `<div id="${imageId}"></div>` : '';
-    chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${text}${imageHTML}</div></div>`);
+    chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${escapeHTML(text)}${imageHTML}</div></div>`);
     fullChatHistory += `用户说：${text}\n`; inputField.value = ''; scrollChatToBottom(false);
     appendDiaryLog(`你：${text}`);
 
