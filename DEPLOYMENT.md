@@ -126,20 +126,22 @@ git push
 3. `Root Directory` 设为 `frontend`
 4. Framework Preset 可选 `Other`
 
-### 3.2 修改前端后端地址
+### 3.2 修改前端后端地址与 API Token
 
-前端当前在 `frontend/app.js` 中通过 `API_BASE_URL` 指向后端：
+前端在 `frontend/app.js` 中通过 `HF_BACKEND_URL` **优先直连** Hugging Face（CORS），失败时回退 `/api/proxy`。
 
 - 本地开发：`http://127.0.0.1:8000`
-- 线上：HF Space 地址
+- 线上默认：`https://likeyouylr-tree-houselikeyouylr.hf.space`（请改成你的 Space）
 
-发布前请确认线上地址是你的 Space 地址，例如：
+若后端启用了 `TREEHOUSE_API_TOKEN`，前端需配置：
 
-```js
-const API_BASE_URL = IS_LOCAL_DEV
-  ? 'http://127.0.0.1:8000'
-  : 'https://<你的-space>.hf.space';
-```
+1. 复制 `frontend/config.example.js` → `frontend/config.js`（已在 `.gitignore`，勿提交）
+2. 填入与 HF / Vercel 相同的 `apiToken`
+
+Vercel 环境变量（可选）：
+
+- `HF_BACKEND_URL`：代理容灾用的后端地址
+- `TREEHOUSE_API_TOKEN`：代理转发时自动附加 `X-Treehouse-Token`
 
 改完后重新推送 GitHub，Vercel 会自动重建。
 
@@ -193,15 +195,9 @@ const API_BASE_URL = IS_LOCAL_DEV
 - `requirements.txt` 依赖安装超时/失败
 - 代码语法错误导致容器启动失败
 
-### 5.3 Vercel 能打开但请求失败 / 出现 HTTP 504
+### 5.3 Vercel 能打开但请求失败
 
-常见原因：
-
-1. `HF_BACKEND_URL` 写错（多了一个连字符的 Space 名会 404）
-2. 仅走 Vercel Edge 代理且上游冷启动过慢（前端已默认直连 HF，代理为备用）
-3. Hugging Face 未配置 `SILICONFLOW_API_KEY` 导致后端异常
-
-请先在浏览器 Network 里确认 `/chat` 是否打到 `*.hf.space`，而不是长时间卡在 `/api/proxy` 后 504。
+通常是 `API_BASE_URL` 仍指向旧地址或错误域名。
 
 ---
 

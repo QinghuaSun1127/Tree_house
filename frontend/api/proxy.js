@@ -23,6 +23,11 @@ export default async function handler(req) {
     newHeaders.delete('origin');
     newHeaders.delete('referer');
 
+    const apiToken = process.env.TREEHOUSE_API_TOKEN;
+    if (apiToken) {
+        newHeaders.set('X-Treehouse-Token', apiToken);
+    }
+
     let lastError = null;
     for (const origin of backendOrigins) {
         const targetUrl = `${origin}${endpoint}`;

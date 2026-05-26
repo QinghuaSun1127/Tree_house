@@ -1,24 +1,29 @@
 # -*- coding: utf-8 -*-
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Header, HTTPException, Request, Depends
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from openai import OpenAI
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, Dict, Any, List
 import base64
 import io
-import os  # <-- 新增这一行
+import os
+import secrets
+
 app = FastAPI(title="TreeHole AI API")
 depth_estimator = None
 depth_runtime_error = None
 TEXT_MODEL_TIMEOUT = 45.0
 IMAGE_MODEL_TIMEOUT = 150.0
-# Session memory: roughly 15 rounds (= 30 role messages) + char budget for context window safety
 SESSION_MAX_MESSAGES = 30
 SESSION_MAX_CHARS = 18000
+MAX_JSON_BODY_BYTES = int(os.getenv("MAX_JSON_BODY_BYTES", "8000000"))
+MAX_IMAGE_DATA_URL_CHARS = int(os.getenv("MAX_IMAGE_DATA_URL_CHARS", "6000000"))
+MAX_CHAT_HISTORY_CHARS = int(os.getenv("MAX_CHAT_HISTORY_CHARS", "120000"))
 
-# In-process session store (per server process); client may resync via history field
 _SESSION_MEMORY: Dict[str, List[Dict[str, Any]]] = {}
+
+TREEHOUSE_API_TOKEN = (os.getenv("TREEHOUSE_API_TOKEN") or "").strip()
 
 TREEHOUSE_SYSTEM_PROMPT = """你是住在手机里的治愈系树洞精灵『小树』，性格像柔软、护短的真朋友。
 【工作流程】请先在心里快速判断用户的情绪基调（如轻松、低落、焦虑、欣喜、怀念等），再自然回复，但不要输出任何分析标签或分项列表——直接像真人发微信。
@@ -64,7 +69,6 @@ def build_messages_with_memory(
     prior_messages: Optional[List[Dict[str, Any]]],
     user_content_any: Any,
 ) -> List[Dict[str, Any]]:
-    """prior_messages = turns strictly before this user message (frontend chatHistory[:-1])."""
     sid = _normalize_session_id(session_id)
     prior_state = _sanitize_client_history(prior_messages)
     _SESSION_MEMORY[sid] = prior_state
@@ -83,6 +87,26 @@ def _persist_turn(session_id: str, user_plain: str, assistant_plain: str) -> Non
     if assistant_plain.strip():
         lst.append({"role": "assistant", "content": assistant_plain.strip()})
     _SESSION_MEMORY[sid] = _compress_turns(lst)
+
+
+def _validate_image_data_url(image_url: Optional[str]) -> None:
+    if not image_url:
+        return
+    if len(image_url) > MAX_IMAGE_DATA_URL_CHARS:
+        raise HTTPException(status_code=413, detail="Image payload too large")
+
+
+async def require_api_token(
+    x_treehouse_token: Optional[str] = Header(default=None, alias="X-Treehouse-Token"),
+) -> None:
+    """若配置了 TREEHOUSE_API_TOKEN，则要求请求携带相同 Token。"""
+    if not TREEHOUSE_API_TOKEN:
+        return
+    if not x_treehouse_token or not secrets.compare_digest(
+        x_treehouse_token.strip(), TREEHOUSE_API_TOKEN
+    ):
+        raise HTTPException(status_code=401, detail="Invalid or missing API token")
+
 
 def get_depth_estimator():
     global depth_estimator, depth_runtime_error
@@ -103,6 +127,7 @@ def get_depth_estimator():
         print("Depth model loaded.")
     return depth_estimator
 
+
 def decode_data_url(image_url: str):
     from PIL import Image
 
@@ -111,33 +136,50 @@ def decode_data_url(image_url: str):
     image_bytes = base64.b64decode(image_url)
     return Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
+
 def image_to_data_url(image, fmt: str = "PNG") -> str:
     buffer = io.BytesIO()
     image.save(buffer, format=fmt)
     encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
     return f"data:image/{fmt.lower()};base64,{encoded}"
 
+
 def build_pseudo_depth(image):
     from PIL import Image, ImageFilter, ImageOps
-    # 纯后端算法兜底：把亮度与边缘信息融合成“伪深度图”，保证接口稳定可用
+
     gray = ImageOps.grayscale(image)
     edge = gray.filter(ImageFilter.FIND_EDGES)
     edge = ImageOps.autocontrast(edge)
     depth = ImageOps.autocontrast(ImageOps.invert(gray))
-    # 70%亮度深度 + 30%边缘，增强立体位移观感
     blended = Image.blend(depth.convert("L"), edge.convert("L"), 0.30)
     return blended
 
-# 允许跨域请求
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 初始化 AI 客户端
+
+@app.middleware("http")
+async def limit_request_body_size(request: Request, call_next):
+    if request.method in ("POST", "PUT", "PATCH"):
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_JSON_BODY_BYTES:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body too large"},
+                    )
+            except ValueError:
+                pass
+    return await call_next(request)
+
+
 api_key = os.getenv("SILICONFLOW_API_KEY")
 if not api_key:
     raise RuntimeError(
@@ -146,14 +188,13 @@ if not api_key:
     )
 
 client = OpenAI(
-    api_key=api_key, 
+    api_key=api_key,
     base_url="https://api.siliconflow.cn/v1",
-    timeout=TEXT_MODEL_TIMEOUT
+    timeout=TEXT_MODEL_TIMEOUT,
 )
 
-# 定义接收的数据结构
+
 class UserMessage(BaseModel):
-    # history: 当前轮之前的对话链（不含本轮 user）；text_for_model: 若为 None 则等价于 text
     text: str
     session_id: Optional[str] = None
     history: Optional[List[Dict[str, Any]]] = None
@@ -167,27 +208,35 @@ def _user_plain_for_storage(text: str, image_url: Optional[str]) -> str:
         return f"{t} [附图]" if t else "[附图]"
     return t
 
+
 class SummaryRequest(BaseModel):
     chat_history: str
+
 
 class DepthRequest(BaseModel):
     image_url: str
 
+
 @app.get("/")
 def root():
     return {"status": "ok", "service": "TreeHole AI API"}
+
 
 @app.get("/health")
 def health():
     return {
         "status": "ok",
         "has_siliconflow_api_key": bool(api_key),
+        "api_token_required": bool(TREEHOUSE_API_TOKEN),
         "depth_model_loaded": depth_estimator is not None,
         "depth_runtime_error": depth_runtime_error,
     }
 
-@app.post("/chat")
+
+@app.post("/chat", dependencies=[Depends(require_api_token)])
 def chat_with_ai(message: UserMessage):
+    _validate_image_data_url(message.image_url)
+
     print("\n--- 收到新消息 ---")
     user_visible = message.text.strip() if message.text else ""
     model_text = (message.text_for_model or "").strip() or user_visible
@@ -246,24 +295,33 @@ def chat_with_ai(message: UserMessage):
 
     return StreamingResponse(generator(), media_type="text/event-stream")
 
-@app.post("/summary")
+
+@app.post("/summary", dependencies=[Depends(require_api_token)])
 def generate_summary(request: SummaryRequest):
+    if len(request.chat_history or "") > MAX_CHAT_HISTORY_CHARS:
+        raise HTTPException(status_code=413, detail="Chat history too large")
+
     try:
         response = client.chat.completions.create(
-            model="deepseek-ai/DeepSeek-V3", 
+            model="deepseek-ai/DeepSeek-V3",
             messages=[
-                # 👇 替换掉原来的系统提示词
-                {"role": "system", "content": "你是一个神奇的情绪魔法师。请阅读用户的聊天记录，提取2-3个【魔法情绪标签】。最后用一句像童话般温柔的话（15字以内）来总结用户今天的心情。\n\n【核心要求】：你必须在回复的最开头，根据用户整体心境，严格输出以下三个主题暗号之一（必须带中括号）：\n[theme-gloomy] （代表难过、压力、疲惫、乌云）\n[theme-sunny] （代表开心、治愈、期待、阳光）\n[theme-default] （代表平稳、日常）\n\n格式示例：\n[theme-sunny]\n标签：✨星星闪烁，🌻向日葵\n总结：今天心里开出了一朵小花呢！"},
-                {"role": "user", "content": request.chat_history}
+                {
+                    "role": "system",
+                    "content": "你是一个神奇的情绪魔法师。请阅读用户的聊天记录，提取2-3个【魔法情绪标签】。最后用一句像童话般温柔的话（15字以内）来总结用户今天的心情。\n\n【核心要求】：你必须在回复的最开头，根据用户整体心境，严格输出以下三个主题暗号之一（必须带中括号）：\n[theme-gloomy] （代表难过、压力、疲惫、乌云）\n[theme-sunny] （代表开心、治愈、期待、阳光）\n[theme-default] （代表平稳、日常）\n\n格式示例：\n[theme-sunny]\n标签：✨星星闪烁，🌻向日葵\n总结：今天心里开出了一朵小花呢！",
+                },
+                {"role": "user", "content": request.chat_history},
             ],
-            timeout=TEXT_MODEL_TIMEOUT
+            timeout=TEXT_MODEL_TIMEOUT,
         )
         return {"summary": response.choices[0].message.content}
     except Exception as e:
         return {"summary": f"生成报告失败，错误：{e}"}
 
-@app.post("/generate_depth")
+
+@app.post("/generate_depth", dependencies=[Depends(require_api_token)])
 def generate_depth(request: DepthRequest):
+    _validate_image_data_url(request.image_url)
+
     try:
         image = decode_data_url(request.image_url)
         image.thumbnail((768, 768))
@@ -276,6 +334,8 @@ def generate_depth(request: DepthRequest):
             depth_image = build_pseudo_depth(image)
 
         return {"depth_map": image_to_data_url(depth_image)}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Depth map generation failed: {e}")
         return {"error": f"深度图生成失败：{e}"}

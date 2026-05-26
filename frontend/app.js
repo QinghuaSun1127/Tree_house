@@ -3,7 +3,7 @@
  * @description 核心交互逻辑、AES-GCM 零信任加密引擎、PixiJS 3D/粒子系统与 RAG 时序记忆引擎。
  * @author 你的名字 / 树洞开发团队
  */
-console.log('[Treehouse] app.js loaded: 20260526-maint-1');
+console.log('[Treehouse] app.js loaded: 20260526-maint-2');
 
 // ==========================================
 // 📦 1. 全局状态与配置区
@@ -73,7 +73,10 @@ async function fetchWithApiFallback(endpoint, init) {
     for (let i = 0; i < candidates.length; i++) {
         const url = candidates[i];
         try {
-            const response = await fetch(url, init);
+            const response = await fetch(url, {
+                ...init,
+                headers: getApiAuthHeaders(init.headers || {}),
+            });
             const canRetry = i < candidates.length - 1 && API_RETRY_STATUSES.has(response.status);
             if (canRetry) {
                 lastError = new Error(`HTTP ${response.status}`);
@@ -148,6 +151,76 @@ function parseHistoryStringToTurns(historyStr) {
     return out;
 }
 
+function turnsToLegacyHistoryString(turns) {
+    if (!Array.isArray(turns) || turns.length === 0) return '';
+    const lines = [];
+    for (const t of turns) {
+        if (!t || !t.content) continue;
+        if (t.role === 'user') lines.push(`用户说：${t.content}`);
+        else if (t.role === 'assistant') lines.push(`小树回复：${t.content}`);
+    }
+    return lines.length ? `${lines.join('\n')}\n` : '';
+}
+
+function syncFullChatHistoryFromTurns() {
+    fullChatHistory = turnsToLegacyHistoryString(structuredChatHistory);
+}
+
+function countUserTurns(turns) {
+    return (turns || []).filter(t => t && t.role === 'user').length;
+}
+
+function getEncryptedHistoryPayload() {
+    return JSON.stringify({ v: 2, turns: structuredChatHistory.slice(-30) });
+}
+
+function renderTurnsToScreen(turns) {
+    const chatBox = document.getElementById('chatBox');
+    if (!chatBox) return;
+    chatBox.innerHTML = '';
+    for (const t of turns || []) {
+        if (!t || !t.content) continue;
+        if (t.role === 'user') {
+            chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${escapeHTML(t.content)}</div></div>`);
+        } else if (t.role === 'assistant') {
+            chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai-wrapper"><div class="avatar ai-avatar">🌳</div><div class="message ai-message">${safeParseMD(t.content)}</div></div>`);
+        }
+    }
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function applyDecryptedHistory(decrypted) {
+    let loadedTurns = [];
+    try {
+        const obj = JSON.parse(decrypted);
+        if (obj && obj.v === 2 && Array.isArray(obj.turns)) {
+            loadedTurns = obj.turns;
+        }
+    } catch (_) { /* legacy plaintext */ }
+
+    if (!loadedTurns.length) {
+        loadedTurns = parseHistoryStringToTurns(decrypted);
+    }
+
+    if (structuredChatHistory.length) {
+        structuredChatHistory = [...loadedTurns, ...structuredChatHistory].slice(-30);
+    } else {
+        structuredChatHistory = loadedTurns.slice(-30);
+    }
+    persistStructuredChatHistory();
+    syncFullChatHistoryFromTurns();
+    renderTurnsToScreen(structuredChatHistory);
+    return true;
+}
+
+function getApiAuthHeaders(extra = {}) {
+    const headers = { 'Content-Type': 'application/json', ...extra };
+    const token = (window.TREEHOUSE_CONFIG && window.TREEHOUSE_CONFIG.apiToken) || '';
+    if (token) headers['X-Treehouse-Token'] = token;
+    return headers;
+}
+
+
 function scrollChatToBottom(smooth = true) {
     const chatBox = document.getElementById('chatBox');
     if (!chatBox) return;
@@ -180,6 +253,7 @@ function hydrateStructuredChatHistory() {
         if (!raw) return;
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) structuredChatHistory = parsed.slice(-30);
+        syncFullChatHistoryFromTurns();
     } catch (_) { /* ignore */ }
 }
 
@@ -429,10 +503,7 @@ async function toggleSecurity() {
     if (savedHistory) {
         const decrypted = await decryptData(savedHistory);
         if (decrypted !== null) {
-            fullChatHistory = decrypted + "\n" + fullChatHistory;
-            renderHistoryToScreen(fullChatHistory);
-            structuredChatHistory = parseHistoryStringToTurns(fullChatHistory).slice(-30);
-            persistStructuredChatHistory();
+            applyDecryptedHistory(decrypted);
             alert("✅ 历史记忆解密成功！后续聊天将自动加密保存。");
         } else {
             alert("❌ 密码错误！"); cryptoKeyObj = null; userSecretKey = null; return;
@@ -475,8 +546,9 @@ function startNewChat() {
  * 导出纯本地数据，不经过服务器
  */
 function exportData() {
-    if (!fullChatHistory && longTermMemory.length === 0) return alert("当前没有可导出的数据哦。");
-    let exportStr = "=== 🌳 我的树洞记忆 ===\n\n【聊天记录】\n" + (fullChatHistory || "暂无记录") + "\n\n【长期记忆（情绪卡）】\n";
+    syncFullChatHistoryFromTurns();
+    if (!structuredChatHistory.length && longTermMemory.length === 0) return alert("当前没有可导出的数据哦。");
+    let exportStr = "=== 🌳 我的树洞记忆 ===\n\n【聊天记录】\n" + (turnsToLegacyHistoryString(structuredChatHistory) || "暂无记录") + "\n\n【长期记忆（情绪卡）】\n";
     if (longTermMemory.length > 0) { longTermMemory.forEach(m => { exportStr += `[${m.date}]\n${m.summary}\n\n`; }); } else { exportStr += "暂无记忆\n"; }
     const blob = new Blob([exportStr], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob); const a = document.createElement('a');
@@ -735,7 +807,7 @@ async function sendMessage() {
     const imageId = 'img-' + Date.now();
     let imageHTML = imageDataUrl ? `<div id="${imageId}"></div>` : '';
     chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${escapeHTML(text)}${imageHTML}</div></div>`);
-    fullChatHistory += `用户说：${text}\n`; inputField.value = ''; scrollChatToBottom(false);
+    inputField.value = ''; scrollChatToBottom(false);
     appendDiaryLog(`你：${text}`);
 
     if (imageDataUrl) renderStaticPhoto(imageId, imageDataUrl);
@@ -748,7 +820,7 @@ async function sendMessage() {
 
     // RAG: 注入长期情感状态向量
     let payloadText = text;
-    if (fullChatHistory.split('用户说：').length <= 3 && longTermMemory.length > 0) {
+    if (countUserTurns(structuredChatHistory) <= 2 && longTermMemory.length > 0) {
         let memoryPrompt = "\n\n【系统附加机密指令：作为树洞精灵，请记住用户过去几天的心情状态：";
         longTermMemory.forEach(m => { memoryPrompt += `[${m.date}] ${m.summary}。`; });
         memoryPrompt += "请在接下来的回复中，像老朋友一样，极其自然、不露痕迹地关心一下TA过去几天的状况。】";
@@ -794,13 +866,12 @@ async function sendMessage() {
         structuredChatHistory.push({ role: 'assistant', content: replyText });
         structuredChatHistory = structuredChatHistory.slice(-30);
         persistStructuredChatHistory();
-
-        fullChatHistory += `小树回复：${replyText}\n`;
+        syncFullChatHistoryFromTurns();
         appendDiaryLog(`小树：${replyText}`);
 
         // 数据闭环：自动存盘
         if (cryptoKeyObj) {
-            const encryptedStr = await encryptData(fullChatHistory);
+            const encryptedStr = await encryptData(getEncryptedHistoryPayload());
             if (encryptedStr) localStorage.setItem('treeHole_encrypted_history', encryptedStr);
         }
 
@@ -822,7 +893,8 @@ async function sendMessage() {
  */
 async function getSummary() {
     if (!userSecretKey) return alert("请先点击右上角【解锁记忆】，验证身份后再生成情绪报告！");
-    if (fullChatHistory === "") return alert("先跟我说说话吧！");
+    syncFullChatHistoryFromTurns();
+    if (structuredChatHistory.length === 0) return alert("先跟我说说话吧！");
 
     if (!navigator.onLine) {
         const btn = document.getElementById('summaryBtn');
@@ -835,7 +907,7 @@ async function getSummary() {
     document.getElementById('chatBox').scrollTop = document.getElementById('chatBox').scrollHeight;
 
     try {
-        let rawSummary = (await fetchJsonWithTimeout('/summary', { chat_history: fullChatHistory }, TEXT_REQUEST_TIMEOUT_MS)).summary;
+        let rawSummary = (await fetchJsonWithTimeout('/summary', { chat_history: turnsToLegacyHistoryString(structuredChatHistory) }, TEXT_REQUEST_TIMEOUT_MS)).summary;
         const match = rawSummary.match(/\[(theme-[a-z]+)\]/);
         if (match) { document.body.className = match[1]; rawSummary = rawSummary.replace(match[0], '').trim(); }
 
