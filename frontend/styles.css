@@ -451,6 +451,16 @@ body {
     border-radius: 19px !important;
     font-size: 14px !important;
     cursor: pointer !important;
+    transition: background-color 0.2s ease;
+}
+
+.send-btn.is-generating {
+    background-color: #ef4444 !important;
+}
+
+.send-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed !important;
 }
 
 /* 图片预览区 */

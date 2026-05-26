@@ -126,22 +126,20 @@ git push
 3. `Root Directory` 设为 `frontend`
 4. Framework Preset 可选 `Other`
 
-### 3.2 修改前端后端地址与 API Token
+### 3.2 修改前端后端地址
 
-前端在 `frontend/app.js` 中通过 `HF_BACKEND_URL` **优先直连** Hugging Face（CORS），失败时回退 `/api/proxy`。
+前端当前在 `frontend/app.js` 中通过 `API_BASE_URL` 指向后端：
 
 - 本地开发：`http://127.0.0.1:8000`
-- 线上默认：`https://likeyouylr-tree-houselikeyouylr.hf.space`（请改成你的 Space）
+- 线上：HF Space 地址
 
-若后端启用了 `TREEHOUSE_API_TOKEN`，前端需配置：
+发布前请确认线上地址是你的 Space 地址，例如：
 
-1. 复制 `frontend/config.example.js` → `frontend/config.js`（已在 `.gitignore`，勿提交）
-2. 填入与 HF / Vercel 相同的 `apiToken`
-
-Vercel 环境变量（可选）：
-
-- `HF_BACKEND_URL`：代理容灾用的后端地址
-- `TREEHOUSE_API_TOKEN`：代理转发时自动附加 `X-Treehouse-Token`
+```js
+const API_BASE_URL = IS_LOCAL_DEV
+  ? 'http://127.0.0.1:8000'
+  : 'https://<你的-space>.hf.space';
+```
 
 改完后重新推送 GitHub，Vercel 会自动重建。
 
@@ -174,6 +172,12 @@ Vercel 环境变量（可选）：
 
 - [ ] 前端刷新后（同标签页）仍能延续会话（`sessionStorage`）
 - [ ] 开启“新局”后记忆被清空，进入新会话
+
+### 4.4 PWA 与交互（维护版）
+
+- [ ] 二次访问时静态资源可从 Service Worker 缓存加载（弱网/离线可打开壳页面）
+- [ ] 生成中「发送」变为「停止」，可中断流式回复
+- [ ] 新加密历史仍可用旧密码解密（兼容固定 salt 旧数据）
 
 ---
 

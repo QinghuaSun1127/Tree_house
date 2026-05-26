@@ -3,7 +3,7 @@
  * @description 核心交互逻辑、AES-GCM 零信任加密引擎、PixiJS 3D/粒子系统与 RAG 时序记忆引擎。
  * @author 你的名字 / 树洞开发团队
  */
-console.log('[Treehouse] app.js loaded: 20260526-maint-2');
+console.log('[Treehouse] app.js loaded: 20260526-maint-3');
 
 // ==========================================
 // 📦 1. 全局状态与配置区
@@ -20,7 +20,6 @@ let isRecording = false;          // 录音状态标记
 let isVoiceOn = true;             // 语音播报开关状态
 let isAudioUnlocked = false;      // 移动端音频引擎是否已解锁
 let userSecretKey = null;         // 用户的专属 AES 密码（明文，仅内存中存留）
-let cryptoKeyObj = null;          // Web Crypto API 派生出的底层加密对象
 let ttsBuffer = '';               // 流式 TTS 文本缓冲区
 let ttsQueue = [];                // 待播报句子队列
 let ttsSpeaking = false;          // 当前是否在播报
@@ -28,6 +27,12 @@ let requireTTSInteraction = false; // Safari 自动播放被拦截标记
 let currentTTSUtterance = null;   // 当前正在播报的 utterance
 const active3DEffects = new Map();
 let dynamicImageObserver = null;
+let isChatGenerating = false;
+let activeStreamAbort = null;
+
+const LEGACY_SALT_BYTES = new TextEncoder().encode('TreeHole_Salt_2026');
+const CRYPTO_MAGIC = new Uint8Array([0x54, 0x32]);
+
 
 const COMMA_MIN_CHARS = 5;
 const HARD_MAX_SEGMENT_CHARS = 40;
@@ -453,41 +458,61 @@ function resumeTTSAfterInteraction() {
  * @param {string} password - 用户输入的口令
  * @returns {Promise<CryptoKey>} 返回底层的 CryptoKey 对象
  */
-async function deriveKey(password) {
+function uint8ToBase64(bytes) {
+    return btoa(String.fromCharCode(...bytes));
+}
+
+function base64ToUint8(base64String) {
+    return Uint8Array.from(atob(base64String), (c) => c.charCodeAt(0));
+}
+
+async function deriveKeyFromPassword(password, saltBytes) {
     const enc = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveKey"]);
+    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']);
     return crypto.subtle.deriveKey(
-        { name: "PBKDF2", salt: enc.encode("TreeHole_Salt_2026"), iterations: 100000, hash: "SHA-256" },
-        keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+        { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
     );
 }
 
-/**
- * 端到端加密机制：将文本转为 AES-GCM 密文并打包 IV 向量
- * @param {string} text - 需要加密的明文
- * @returns {Promise<string|null>} 返回 Base64 编码的密文包
- */
+/** 端到端加密：T2 + 随机 salt；兼容旧版固定 salt */
 async function encryptData(text) {
-    if (!cryptoKeyObj) return null;
+    if (!userSecretKey) return null;
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveKeyFromPassword(userSecretKey, salt);
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, cryptoKeyObj, new TextEncoder().encode(text));
-    const exported = new Uint8Array(iv.length + ciphertext.byteLength);
-    exported.set(iv, 0); exported.set(new Uint8Array(ciphertext), iv.length);
-    return btoa(String.fromCharCode(...exported));
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(text));
+    const ct = new Uint8Array(ciphertext);
+    const exported = new Uint8Array(2 + 16 + 12 + ct.length);
+    exported.set(CRYPTO_MAGIC, 0);
+    exported.set(salt, 2);
+    exported.set(iv, 18);
+    exported.set(ct, 30);
+    return uint8ToBase64(exported);
 }
 
-/**
- * 解密机制：拆解 Base64，提取 IV 并还原明文
- * @param {string} base64String - 本地读取的密文包
- * @returns {Promise<string|null>} 还原出的明文，失败返回 null
- */
 async function decryptData(base64String) {
-    if (!cryptoKeyObj) return null;
+    if (!userSecretKey) return null;
     try {
-        const rawData = Uint8Array.from(atob(base64String), c => c.charCodeAt(0));
-        const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: rawData.slice(0, 12) }, cryptoKeyObj, rawData.slice(12));
+        const raw = base64ToUint8(base64String);
+        let key, iv, ct;
+        if (raw.length >= 30 && raw[0] === CRYPTO_MAGIC[0] && raw[1] === CRYPTO_MAGIC[1]) {
+            key = await deriveKeyFromPassword(userSecretKey, raw.slice(2, 18));
+            iv = raw.slice(18, 30);
+            ct = raw.slice(30);
+        } else if (raw.length >= 13) {
+            key = await deriveKeyFromPassword(userSecretKey, LEGACY_SALT_BYTES);
+            iv = raw.slice(0, 12);
+            ct = raw.slice(12);
+        } else return null;
+        const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
         return new TextDecoder().decode(decrypted);
-    } catch (e) { return null; }
+    } catch (_) {
+        return null;
+    }
 }
 
 /**
@@ -497,7 +522,7 @@ async function toggleSecurity() {
     const pwd = prompt("请输入隐私密码（用于解密历史记录，或加密保护接下来的对话）：");
     if (!pwd) return;
 
-    cryptoKeyObj = await deriveKey(pwd); userSecretKey = pwd;
+    userSecretKey = pwd;
 
     const savedHistory = localStorage.getItem('treeHole_encrypted_history');
     if (savedHistory) {
@@ -506,7 +531,7 @@ async function toggleSecurity() {
             applyDecryptedHistory(decrypted);
             alert("✅ 历史记忆解密成功！后续聊天将自动加密保存。");
         } else {
-            alert("❌ 密码错误！"); cryptoKeyObj = null; userSecretKey = null; return;
+            alert("❌ 密码错误！"); userSecretKey = null; return;
         }
     } else { alert("✅ 密码设置成功！本次对话的后续内容将自动加密保存。"); }
 
@@ -531,7 +556,7 @@ function startNewChat() {
         fullChatHistory = ""; structuredChatHistory = [];
         sessionStorage.removeItem(SS_KEY_TREEHOUSE_SESSION);
         sessionStorage.removeItem(SS_KEY_TREEHOUSE_TURNS);
-        cryptoKeyObj = null; userSecretKey = null;
+        userSecretKey = null;
         document.getElementById('chatBox').innerHTML = `<div class="message-wrapper ai-wrapper"><div class="avatar ai-avatar">🌳</div><div class="message ai-message">你好呀！我是你的专属树洞精灵『小树』✨<br><strong>今天想聊点什么呢？随时可以告诉我哦。</strong></div></div>`;
         const diary = document.getElementById('diaryLogList');
         if (diary) diary.innerHTML = '<div class="diary-item">新对话开始，记录新的心情轨迹。</div>';
@@ -568,7 +593,7 @@ function destroyMemory() {
     fullChatHistory = ""; structuredChatHistory = []; longTermMemory = [];
     sessionStorage.removeItem(SS_KEY_TREEHOUSE_SESSION);
     sessionStorage.removeItem(SS_KEY_TREEHOUSE_TURNS);
-    cryptoKeyObj = null; userSecretKey = null;
+    userSecretKey = null;
 
     document.getElementById('exportBtn').style.display = 'none';
     document.getElementById('destroyBtn').style.display = 'none';
@@ -674,7 +699,8 @@ function sendQuickReply(text) { document.getElementById('userInput').value = tex
 function handleKeyPress(event) {
     if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        sendMessage();
+        if (isChatGenerating) stopActiveGeneration();
+        else sendMessage();
     }
 }
 
@@ -701,6 +727,7 @@ async function fetchJsonWithTimeout(endpoint, payload, timeoutMs) {
 
 async function fetchSSEWithTimeout(endpoint, payload, timeoutMs, { onDelta, onFirstByte, onDone }) {
     const controller = new AbortController();
+    activeStreamAbort = controller;
     let timeoutId;
     let sawFirstByte = false;
     const resetIdleTimeout = () => {
@@ -764,7 +791,26 @@ async function fetchSSEWithTimeout(endpoint, payload, timeoutMs, { onDelta, onFi
         if (onDone) onDone();
     } finally {
         clearTimeout(timeoutId);
+        if (activeStreamAbort === controller) activeStreamAbort = null;
     }
+}
+
+function stopActiveGeneration() {
+    if (activeStreamAbort) activeStreamAbort.abort();
+}
+
+function setChatGenerating(active) {
+    isChatGenerating = !!active;
+    const btn = document.getElementById('sendMsgBtn');
+    const input = document.getElementById('userInput');
+    const mic = document.getElementById('micBtn');
+    if (btn) {
+        btn.textContent = active ? '停止' : '发送';
+        btn.classList.toggle('is-generating', active);
+        btn.setAttribute('aria-busy', active ? 'true' : 'false');
+    }
+    if (input) input.disabled = active;
+    if (mic) mic.disabled = active;
 }
 
 function applyThemeFromReply(replyText) {
@@ -787,12 +833,14 @@ function renderStaticPhoto(containerId, originalBase64) {
  * 拦截并处理用户的聊天请求，包含离线嗅探、RAG 指令拼接和熔断保护
  */
 async function sendMessage() {
+    if (isChatGenerating) return;
     unlockAudio();
     const inputField = document.getElementById('userInput'); const chatBox = document.getElementById('chatBox');
     const text = inputField.value.trim();
     const imageDataUrl = currentImageDataUrl;
     if (!text && !imageDataUrl) return;
     stopTTS();
+    setChatGenerating(true);
 
     // 弱网环境嗅探与熔断
     if (!navigator.onLine) {
@@ -827,8 +875,8 @@ async function sendMessage() {
         payloadText = text + memoryPrompt;
     }
 
+    let replyText = '';
     try {
-        let replyText = '';
         const targetBubble = document.getElementById(loadingId);
         const chatPayload = {
             session_id: getTreehouseSessionId(),
@@ -870,7 +918,7 @@ async function sendMessage() {
         appendDiaryLog(`小树：${replyText}`);
 
         // 数据闭环：自动存盘
-        if (cryptoKeyObj) {
+        if (userSecretKey) {
             const encryptedStr = await encryptData(getEncryptedHistoryPayload());
             if (encryptedStr) localStorage.setItem('treeHole_encrypted_history', encryptedStr);
         }
@@ -879,11 +927,19 @@ async function sendMessage() {
     } catch (error) {
         stopTTS();
         const friendly = humanizeApiError(error);
+        const bubble = document.getElementById(loadingId);
         if (friendly.name === 'AbortError') {
-            document.getElementById(loadingId).innerText = "（小树的树枝被风吹断了信号，稍等再试哦 🍂）";
-        } else {
-            document.getElementById(loadingId).innerText = friendly.message || "（哎呀，信号断啦，稍等再试哦）";
+            if (bubble) {
+                bubble.classList.remove('streaming-chunk-mode');
+                bubble.innerHTML = replyText.trim()
+                    ? safeParseMD(replyText + '\n\n（已停止生成）', { streaming: true })
+                    : '（已停止生成）';
+            }
+        } else if (bubble) {
+            bubble.innerText = friendly.message || "（哎呀，信号断啦，稍等再试哦）";
         }
+    } finally {
+        setChatGenerating(false);
     }
     clearImage(); scrollChatToBottom();
 }
@@ -920,7 +976,7 @@ async function getSummary() {
         if (existingIndex > -1) { longTermMemory[existingIndex].summary = rawSummary; } else { longTermMemory.push({ date: today, summary: rawSummary }); }
         if (longTermMemory.length > 7) longTermMemory.shift();
 
-        if (cryptoKeyObj) {
+        if (userSecretKey) {
             const encMem = await encryptData(JSON.stringify(longTermMemory));
             localStorage.setItem('treeHole_long_term_memory', encMem);
         }
@@ -1203,9 +1259,28 @@ function initPWA() {
     closeBtn.onclick = () => { pwaBanner.classList.remove('show'); localStorage.setItem('treeHole_pwa_dismissed', 'true'); };
 }
 
+function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch((err) => {
+        console.warn('[Treehouse] Service Worker registration failed:', err);
+    });
+}
+
+function bindSendButton() {
+    const btn = document.getElementById('sendMsgBtn');
+    if (!btn || btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+        if (isChatGenerating) stopActiveGeneration();
+        else sendMessage();
+    });
+}
+
 window.addEventListener('load', () => {
     hydrateStructuredChatHistory();
     initPWA();
     ensureTTSResumeUI();
     initDynamic3DEffectObserver();
+    registerServiceWorker();
+    bindSendButton();
 });
