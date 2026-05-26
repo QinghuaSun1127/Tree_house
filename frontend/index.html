@@ -16,7 +16,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="小树">
 
-    <link rel="stylesheet" href="./styles.css?v=20260429-1447">
+    <link rel="stylesheet" href="./styles.css?v=20260526-maint-3">
 </head>
 
 <body>
@@ -81,7 +81,7 @@
                     <button class="upload-btn" id="speakerBtn" onclick="toggleVoiceOutput()" title="语音播报开关">🔊</button>
                 </div>
                 <textarea id="userInput" placeholder="写下情绪或发张照片..." onkeydown="handleKeyPress(event)" rows="1"></textarea>
-                <button class="send-btn" id="sendMsgBtn" onclick="sendMessage()">发送</button>
+                <button type="button" class="send-btn" id="sendMsgBtn">发送</button>
             </div>
         </div>
 
@@ -91,7 +91,9 @@
         </aside>
     </div>
 
-    <script src="./app.js?v=20260429-1447"></script>
+    <script>window.TREEHOUSE_CONFIG = window.TREEHOUSE_CONFIG || {};</script>
+    <script src="./config.js" onerror="void 0"></script>
+    <script src="./app.js?v=20260526-maint-3"></script>
     
 </body>
 </html>

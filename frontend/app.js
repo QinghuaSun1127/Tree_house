@@ -3,7 +3,7 @@
  * @description 核心交互逻辑、AES-GCM 零信任加密引擎、PixiJS 3D/粒子系统与 RAG 时序记忆引擎。
  * @author 你的名字 / 树洞开发团队
  */
-console.log('[Treehouse] app.js loaded: 20260429-1447');
+console.log('[Treehouse] app.js loaded: 20260526-maint-3');
 
 // ==========================================
 // 📦 1. 全局状态与配置区
@@ -20,7 +20,6 @@ let isRecording = false;          // 录音状态标记
 let isVoiceOn = true;             // 语音播报开关状态
 let isAudioUnlocked = false;      // 移动端音频引擎是否已解锁
 let userSecretKey = null;         // 用户的专属 AES 密码（明文，仅内存中存留）
-let cryptoKeyObj = null;          // Web Crypto API 派生出的底层加密对象
 let ttsBuffer = '';               // 流式 TTS 文本缓冲区
 let ttsQueue = [];                // 待播报句子队列
 let ttsSpeaking = false;          // 当前是否在播报
@@ -28,21 +27,95 @@ let requireTTSInteraction = false; // Safari 自动播放被拦截标记
 let currentTTSUtterance = null;   // 当前正在播报的 utterance
 const active3DEffects = new Map();
 let dynamicImageObserver = null;
+let isChatGenerating = false;
+let activeStreamAbort = null;
+
+const LEGACY_SALT_BYTES = new TextEncoder().encode('TreeHole_Salt_2026');
+const CRYPTO_MAGIC = new Uint8Array([0x54, 0x32]);
+
 
 const COMMA_MIN_CHARS = 5;
 const HARD_MAX_SEGMENT_CHARS = 40;
 
 const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const API_BASE_URL = 'http://127.0.0.1:8000';
+/** 线上 Hugging Face 后端（已开启 CORS，优先直连，避免 Vercel Edge 代理 504） */
+const HF_BACKEND_URL = 'https://likeyouylr-tree-houselikeyouylr.hf.space';
+const API_RETRY_STATUSES = new Set([404, 502, 503, 504]);
 const TEXT_REQUEST_TIMEOUT_MS = 60000;
 const IMAGE_REQUEST_TIMEOUT_MS = 180000;
 const DEPTH_REQUEST_TIMEOUT_MS = 120000;
 const IMAGE_MAX_EDGE = 768;
 const IMAGE_JPEG_QUALITY = 0.72;
 
-function buildApiUrl(endpoint) {
-    if (IS_LOCAL_DEV) return `${API_BASE_URL}${endpoint}`;
-    return `/api/proxy?endpoint=${encodeURIComponent(endpoint)}`;
+function getApiUrlCandidates(endpoint) {
+    const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    if (IS_LOCAL_DEV) return [`${API_BASE_URL}${path}`];
+    return [
+        `${HF_BACKEND_URL}${path}`,
+        `/api/proxy?endpoint=${encodeURIComponent(path)}`,
+    ];
+}
+
+function humanizeApiError(err) {
+    const msg = (err && err.message) || '';
+    if (err && err.name === 'AbortError') return err;
+    if (/HTTP\s*504/i.test(msg) || /504/.test(msg)) {
+        return new Error('小树这边信号有点慢（网关超时），请稍后再发一条试试 🍂');
+    }
+    if (/HTTP\s*502/i.test(msg) || /failed to fetch|load failed|networkerror/i.test(msg)) {
+        return new Error('暂时连不上小树的后台，请检查网络后重试 📡');
+    }
+    if (/HTTP\s*404/i.test(msg)) {
+        return new Error('后端地址不可用，请确认部署配置后重试');
+    }
+    return err || new Error('请求失败，请稍后重试');
+}
+
+async function fetchWithApiFallback(endpoint, init) {
+    const candidates = getApiUrlCandidates(endpoint);
+    let lastError = null;
+    for (let i = 0; i < candidates.length; i++) {
+        const url = candidates[i];
+        try {
+            const response = await fetch(url, {
+                ...init,
+                headers: getApiAuthHeaders(init.headers || {}),
+            });
+            const canRetry = i < candidates.length - 1 && API_RETRY_STATUSES.has(response.status);
+            if (canRetry) {
+                lastError = new Error(`HTTP ${response.status}`);
+                console.warn('[Treehouse] API fallback:', url, response.status);
+                continue;
+            }
+            return response;
+        } catch (error) {
+            lastError = error;
+            if (i < candidates.length - 1) {
+                console.warn('[Treehouse] API fallback after error:', url, error);
+                continue;
+            }
+        }
+    }
+    throw humanizeApiError(lastError);
+}
+
+function sanitizeHTML(html) {
+    try {
+        const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+        doc.querySelectorAll('script, style, iframe, object, embed, link, meta').forEach(n => n.remove());
+        doc.querySelectorAll('*').forEach(el => {
+            [...el.attributes].forEach(attr => {
+                const name = attr.name.toLowerCase();
+                const value = String(attr.value || '');
+                if (name.startsWith('on')) el.removeAttribute(attr.name);
+                if ((name === 'href' || name === 'src') && /^\s*javascript:/i.test(value)) el.removeAttribute(attr.name);
+            });
+        });
+        return doc.body.innerHTML;
+    } catch (_) {
+        return escapeHTML(String(html || ''));
+    }
 }
 
 /**
@@ -52,7 +125,7 @@ function buildApiUrl(endpoint) {
  */
 function safeParseMD(text, options = {}) {
     const source = options.streaming ? normalizeStreamingMarkdown(text) : text;
-    try { return typeof marked !== 'undefined' ? marked.parse(source) : escapeHTML(source).replace(/\n/g, '<br>'); }
+    try { return typeof marked !== 'undefined' ? sanitizeHTML(marked.parse(source)) : escapeHTML(source).replace(/\n/g, '<br>'); }
     catch (e) { return escapeHTML(source).replace(/\n/g, '<br>'); }
 }
 
@@ -70,6 +143,88 @@ function escapeHTML(text) {
         "'": '&#39;'
     }[char]));
 }
+
+function parseHistoryStringToTurns(historyStr) {
+    const out = [];
+    const lines = String(historyStr || '').split('\n');
+    for (const line of lines) {
+        const trimmed = (line || '').trim();
+        if (!trimmed) continue;
+        if (trimmed.startsWith('用户说：')) out.push({ role: 'user', content: trimmed.substring(4) });
+        else if (trimmed.startsWith('小树回复：')) out.push({ role: 'assistant', content: trimmed.substring(5) });
+    }
+    return out;
+}
+
+function turnsToLegacyHistoryString(turns) {
+    if (!Array.isArray(turns) || turns.length === 0) return '';
+    const lines = [];
+    for (const t of turns) {
+        if (!t || !t.content) continue;
+        if (t.role === 'user') lines.push(`用户说：${t.content}`);
+        else if (t.role === 'assistant') lines.push(`小树回复：${t.content}`);
+    }
+    return lines.length ? `${lines.join('\n')}\n` : '';
+}
+
+function syncFullChatHistoryFromTurns() {
+    fullChatHistory = turnsToLegacyHistoryString(structuredChatHistory);
+}
+
+function countUserTurns(turns) {
+    return (turns || []).filter(t => t && t.role === 'user').length;
+}
+
+function getEncryptedHistoryPayload() {
+    return JSON.stringify({ v: 2, turns: structuredChatHistory.slice(-30) });
+}
+
+function renderTurnsToScreen(turns) {
+    const chatBox = document.getElementById('chatBox');
+    if (!chatBox) return;
+    chatBox.innerHTML = '';
+    for (const t of turns || []) {
+        if (!t || !t.content) continue;
+        if (t.role === 'user') {
+            chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${escapeHTML(t.content)}</div></div>`);
+        } else if (t.role === 'assistant') {
+            chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai-wrapper"><div class="avatar ai-avatar">🌳</div><div class="message ai-message">${safeParseMD(t.content)}</div></div>`);
+        }
+    }
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function applyDecryptedHistory(decrypted) {
+    let loadedTurns = [];
+    try {
+        const obj = JSON.parse(decrypted);
+        if (obj && obj.v === 2 && Array.isArray(obj.turns)) {
+            loadedTurns = obj.turns;
+        }
+    } catch (_) { /* legacy plaintext */ }
+
+    if (!loadedTurns.length) {
+        loadedTurns = parseHistoryStringToTurns(decrypted);
+    }
+
+    if (structuredChatHistory.length) {
+        structuredChatHistory = [...loadedTurns, ...structuredChatHistory].slice(-30);
+    } else {
+        structuredChatHistory = loadedTurns.slice(-30);
+    }
+    persistStructuredChatHistory();
+    syncFullChatHistoryFromTurns();
+    renderTurnsToScreen(structuredChatHistory);
+    return true;
+}
+
+function getApiAuthHeaders(extra = {}) {
+    const headers = { 'Content-Type': 'application/json', ...extra };
+    const token = (window.TREEHOUSE_CONFIG && window.TREEHOUSE_CONFIG.apiToken) || '';
+    if (token) headers['X-Treehouse-Token'] = token;
+    return headers;
+}
+
 
 function scrollChatToBottom(smooth = true) {
     const chatBox = document.getElementById('chatBox');
@@ -103,6 +258,7 @@ function hydrateStructuredChatHistory() {
         if (!raw) return;
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) structuredChatHistory = parsed.slice(-30);
+        syncFullChatHistoryFromTurns();
     } catch (_) { /* ignore */ }
 }
 
@@ -302,41 +458,61 @@ function resumeTTSAfterInteraction() {
  * @param {string} password - 用户输入的口令
  * @returns {Promise<CryptoKey>} 返回底层的 CryptoKey 对象
  */
-async function deriveKey(password) {
+function uint8ToBase64(bytes) {
+    return btoa(String.fromCharCode(...bytes));
+}
+
+function base64ToUint8(base64String) {
+    return Uint8Array.from(atob(base64String), (c) => c.charCodeAt(0));
+}
+
+async function deriveKeyFromPassword(password, saltBytes) {
     const enc = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveKey"]);
+    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']);
     return crypto.subtle.deriveKey(
-        { name: "PBKDF2", salt: enc.encode("TreeHole_Salt_2026"), iterations: 100000, hash: "SHA-256" },
-        keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+        { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
     );
 }
 
-/**
- * 端到端加密机制：将文本转为 AES-GCM 密文并打包 IV 向量
- * @param {string} text - 需要加密的明文
- * @returns {Promise<string|null>} 返回 Base64 编码的密文包
- */
+/** 端到端加密：T2 + 随机 salt；兼容旧版固定 salt */
 async function encryptData(text) {
-    if (!cryptoKeyObj) return null;
+    if (!userSecretKey) return null;
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveKeyFromPassword(userSecretKey, salt);
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, cryptoKeyObj, new TextEncoder().encode(text));
-    const exported = new Uint8Array(iv.length + ciphertext.byteLength);
-    exported.set(iv, 0); exported.set(new Uint8Array(ciphertext), iv.length);
-    return btoa(String.fromCharCode(...exported));
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(text));
+    const ct = new Uint8Array(ciphertext);
+    const exported = new Uint8Array(2 + 16 + 12 + ct.length);
+    exported.set(CRYPTO_MAGIC, 0);
+    exported.set(salt, 2);
+    exported.set(iv, 18);
+    exported.set(ct, 30);
+    return uint8ToBase64(exported);
 }
 
-/**
- * 解密机制：拆解 Base64，提取 IV 并还原明文
- * @param {string} base64String - 本地读取的密文包
- * @returns {Promise<string|null>} 还原出的明文，失败返回 null
- */
 async function decryptData(base64String) {
-    if (!cryptoKeyObj) return null;
+    if (!userSecretKey) return null;
     try {
-        const rawData = Uint8Array.from(atob(base64String), c => c.charCodeAt(0));
-        const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: rawData.slice(0, 12) }, cryptoKeyObj, rawData.slice(12));
+        const raw = base64ToUint8(base64String);
+        let key, iv, ct;
+        if (raw.length >= 30 && raw[0] === CRYPTO_MAGIC[0] && raw[1] === CRYPTO_MAGIC[1]) {
+            key = await deriveKeyFromPassword(userSecretKey, raw.slice(2, 18));
+            iv = raw.slice(18, 30);
+            ct = raw.slice(30);
+        } else if (raw.length >= 13) {
+            key = await deriveKeyFromPassword(userSecretKey, LEGACY_SALT_BYTES);
+            iv = raw.slice(0, 12);
+            ct = raw.slice(12);
+        } else return null;
+        const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
         return new TextDecoder().decode(decrypted);
-    } catch (e) { return null; }
+    } catch (_) {
+        return null;
+    }
 }
 
 /**
@@ -346,17 +522,16 @@ async function toggleSecurity() {
     const pwd = prompt("请输入隐私密码（用于解密历史记录，或加密保护接下来的对话）：");
     if (!pwd) return;
 
-    cryptoKeyObj = await deriveKey(pwd); userSecretKey = pwd;
+    userSecretKey = pwd;
 
     const savedHistory = localStorage.getItem('treeHole_encrypted_history');
     if (savedHistory) {
         const decrypted = await decryptData(savedHistory);
         if (decrypted !== null) {
-            fullChatHistory = decrypted + "\n" + fullChatHistory;
-            renderHistoryToScreen(fullChatHistory);
+            applyDecryptedHistory(decrypted);
             alert("✅ 历史记忆解密成功！后续聊天将自动加密保存。");
         } else {
-            alert("❌ 密码错误！"); cryptoKeyObj = null; userSecretKey = null; return;
+            alert("❌ 密码错误！"); userSecretKey = null; return;
         }
     } else { alert("✅ 密码设置成功！本次对话的后续内容将自动加密保存。"); }
 
@@ -381,7 +556,7 @@ function startNewChat() {
         fullChatHistory = ""; structuredChatHistory = [];
         sessionStorage.removeItem(SS_KEY_TREEHOUSE_SESSION);
         sessionStorage.removeItem(SS_KEY_TREEHOUSE_TURNS);
-        cryptoKeyObj = null; userSecretKey = null;
+        userSecretKey = null;
         document.getElementById('chatBox').innerHTML = `<div class="message-wrapper ai-wrapper"><div class="avatar ai-avatar">🌳</div><div class="message ai-message">你好呀！我是你的专属树洞精灵『小树』✨<br><strong>今天想聊点什么呢？随时可以告诉我哦。</strong></div></div>`;
         const diary = document.getElementById('diaryLogList');
         if (diary) diary.innerHTML = '<div class="diary-item">新对话开始，记录新的心情轨迹。</div>';
@@ -396,8 +571,9 @@ function startNewChat() {
  * 导出纯本地数据，不经过服务器
  */
 function exportData() {
-    if (!fullChatHistory && longTermMemory.length === 0) return alert("当前没有可导出的数据哦。");
-    let exportStr = "=== 🌳 我的树洞记忆 ===\n\n【聊天记录】\n" + (fullChatHistory || "暂无记录") + "\n\n【长期记忆（情绪卡）】\n";
+    syncFullChatHistoryFromTurns();
+    if (!structuredChatHistory.length && longTermMemory.length === 0) return alert("当前没有可导出的数据哦。");
+    let exportStr = "=== 🌳 我的树洞记忆 ===\n\n【聊天记录】\n" + (turnsToLegacyHistoryString(structuredChatHistory) || "暂无记录") + "\n\n【长期记忆（情绪卡）】\n";
     if (longTermMemory.length > 0) { longTermMemory.forEach(m => { exportStr += `[${m.date}]\n${m.summary}\n\n`; }); } else { exportStr += "暂无记忆\n"; }
     const blob = new Blob([exportStr], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob); const a = document.createElement('a');
@@ -417,7 +593,7 @@ function destroyMemory() {
     fullChatHistory = ""; structuredChatHistory = []; longTermMemory = [];
     sessionStorage.removeItem(SS_KEY_TREEHOUSE_SESSION);
     sessionStorage.removeItem(SS_KEY_TREEHOUSE_TURNS);
-    cryptoKeyObj = null; userSecretKey = null;
+    userSecretKey = null;
 
     document.getElementById('exportBtn').style.display = 'none';
     document.getElementById('destroyBtn').style.display = 'none';
@@ -438,7 +614,7 @@ function renderHistoryToScreen(historyStr) {
     for (let line of lines) {
         if (!line.trim()) continue;
         if (line.startsWith('用户说：')) {
-            chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${line.substring(4)}</div></div>`);
+            chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${escapeHTML(line.substring(4))}</div></div>`);
         } else if (line.startsWith('小树回复：')) {
             chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai-wrapper"><div class="avatar ai-avatar">🌳</div><div class="message ai-message">${safeParseMD(line.substring(5))}</div></div>`);
         }
@@ -523,73 +699,26 @@ function sendQuickReply(text) { document.getElementById('userInput').value = tex
 function handleKeyPress(event) {
     if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        sendMessage();
+        if (isChatGenerating) stopActiveGeneration();
+        else sendMessage();
     }
 }
 
 // ==========================================
 // 🚀 4. 核心调度与 RAG 通信引擎
 // ==========================================
-// 新增：专门处理 SSE 流式输出的请求函数
-async function fetchStream(endpoint, payload, onChunkReceived) {
-    try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            console.error("请求失败，状态码:", response.status);
-            return;
-        }
-
-        // 1. 获取流式读取器 (这是流式接收的核心)
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-
-        // 2. 开启无限循环，不断接收新的数据块
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break; // 如果后端说发完了，就退出循环
-
-            // 3. 把拿到的二进制数据解码成文字
-            const chunkString = decoder.decode(value, { stream: true });
-
-            // 4. 解析 SSE 格式 (把 "data: 你好\n\n" 变成 "你好")
-            const lines = chunkString.split('\n');
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const text = line.replace('data: ', '');
-                    
-                    // 拦截后端发送的结束信号或错误信号
-                    if (text === '[DONE]') return;
-                    if (text.startsWith('[ERROR]')) {
-                        console.error("后端流式报错:", text);
-                        return;
-                    }
-
-                    // 5. 将干净的文字传给外面的回调函数，用来更新 UI
-                    onChunkReceived(text);
-                }
-            }
-        }
-    } catch (error) {
-        console.error("流式接收发生网络错误:", error);
-    }
-}
 async function fetchJsonWithTimeout(endpoint, payload, timeoutMs) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const response = await fetch(buildApiUrl(endpoint), {
+        const response = await fetchWithApiFallback(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
             signal: controller.signal
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw humanizeApiError(new Error(`HTTP ${response.status}`));
         return await response.json();
     } finally {
         clearTimeout(timeoutId);
@@ -598,6 +727,7 @@ async function fetchJsonWithTimeout(endpoint, payload, timeoutMs) {
 
 async function fetchSSEWithTimeout(endpoint, payload, timeoutMs, { onDelta, onFirstByte, onDone }) {
     const controller = new AbortController();
+    activeStreamAbort = controller;
     let timeoutId;
     let sawFirstByte = false;
     const resetIdleTimeout = () => {
@@ -607,14 +737,14 @@ async function fetchSSEWithTimeout(endpoint, payload, timeoutMs, { onDelta, onFi
     resetIdleTimeout();
 
     try {
-        const response = await fetch(buildApiUrl(endpoint), {
+        const response = await fetchWithApiFallback(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
             signal: controller.signal
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw humanizeApiError(new Error(`HTTP ${response.status}`));
         if (!response.body) throw new Error('当前浏览器不支持流式响应');
 
         const reader = response.body.getReader();
@@ -661,7 +791,26 @@ async function fetchSSEWithTimeout(endpoint, payload, timeoutMs, { onDelta, onFi
         if (onDone) onDone();
     } finally {
         clearTimeout(timeoutId);
+        if (activeStreamAbort === controller) activeStreamAbort = null;
     }
+}
+
+function stopActiveGeneration() {
+    if (activeStreamAbort) activeStreamAbort.abort();
+}
+
+function setChatGenerating(active) {
+    isChatGenerating = !!active;
+    const btn = document.getElementById('sendMsgBtn');
+    const input = document.getElementById('userInput');
+    const mic = document.getElementById('micBtn');
+    if (btn) {
+        btn.textContent = active ? '停止' : '发送';
+        btn.classList.toggle('is-generating', active);
+        btn.setAttribute('aria-busy', active ? 'true' : 'false');
+    }
+    if (input) input.disabled = active;
+    if (mic) mic.disabled = active;
 }
 
 function applyThemeFromReply(replyText) {
@@ -684,12 +833,14 @@ function renderStaticPhoto(containerId, originalBase64) {
  * 拦截并处理用户的聊天请求，包含离线嗅探、RAG 指令拼接和熔断保护
  */
 async function sendMessage() {
+    if (isChatGenerating) return;
     unlockAudio();
     const inputField = document.getElementById('userInput'); const chatBox = document.getElementById('chatBox');
     const text = inputField.value.trim();
     const imageDataUrl = currentImageDataUrl;
     if (!text && !imageDataUrl) return;
     stopTTS();
+    setChatGenerating(true);
 
     // 弱网环境嗅探与熔断
     if (!navigator.onLine) {
@@ -703,8 +854,8 @@ async function sendMessage() {
     // 渲染用户输入
     const imageId = 'img-' + Date.now();
     let imageHTML = imageDataUrl ? `<div id="${imageId}"></div>` : '';
-    chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${text}${imageHTML}</div></div>`);
-    fullChatHistory += `用户说：${text}\n`; inputField.value = ''; scrollChatToBottom(false);
+    chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper user-wrapper"><div class="avatar user-avatar">👤</div><div class="message user-message">${escapeHTML(text)}${imageHTML}</div></div>`);
+    inputField.value = ''; scrollChatToBottom(false);
     appendDiaryLog(`你：${text}`);
 
     if (imageDataUrl) renderStaticPhoto(imageId, imageDataUrl);
@@ -717,15 +868,15 @@ async function sendMessage() {
 
     // RAG: 注入长期情感状态向量
     let payloadText = text;
-    if (fullChatHistory.split('用户说：').length <= 3 && longTermMemory.length > 0) {
+    if (countUserTurns(structuredChatHistory) <= 2 && longTermMemory.length > 0) {
         let memoryPrompt = "\n\n【系统附加机密指令：作为树洞精灵，请记住用户过去几天的心情状态：";
         longTermMemory.forEach(m => { memoryPrompt += `[${m.date}] ${m.summary}。`; });
         memoryPrompt += "请在接下来的回复中，像老朋友一样，极其自然、不露痕迹地关心一下TA过去几天的状况。】";
         payloadText = text + memoryPrompt;
     }
 
+    let replyText = '';
     try {
-        let replyText = '';
         const targetBubble = document.getElementById(loadingId);
         const chatPayload = {
             session_id: getTreehouseSessionId(),
@@ -763,21 +914,32 @@ async function sendMessage() {
         structuredChatHistory.push({ role: 'assistant', content: replyText });
         structuredChatHistory = structuredChatHistory.slice(-30);
         persistStructuredChatHistory();
-
-        fullChatHistory += `小树回复：${replyText}\n`;
+        syncFullChatHistoryFromTurns();
         appendDiaryLog(`小树：${replyText}`);
 
         // 数据闭环：自动存盘
-        if (cryptoKeyObj) {
-            const encryptedStr = await encryptData(fullChatHistory);
+        if (userSecretKey) {
+            const encryptedStr = await encryptData(getEncryptedHistoryPayload());
             if (encryptedStr) localStorage.setItem('treeHole_encrypted_history', encryptedStr);
         }
 
         if (imageDataUrl) create3DPhoto(imageId, imageDataUrl);
     } catch (error) {
         stopTTS();
-        if (error.name === 'AbortError') { document.getElementById(loadingId).innerText = "（小树的树枝被风吹断了信号，稍等再试哦 🍂）"; }
-        else { document.getElementById(loadingId).innerText = error.message || "（哎呀，信号断啦，稍等再试哦）"; }
+        const friendly = humanizeApiError(error);
+        const bubble = document.getElementById(loadingId);
+        if (friendly.name === 'AbortError') {
+            if (bubble) {
+                bubble.classList.remove('streaming-chunk-mode');
+                bubble.innerHTML = replyText.trim()
+                    ? safeParseMD(replyText + '\n\n（已停止生成）', { streaming: true })
+                    : '（已停止生成）';
+            }
+        } else if (bubble) {
+            bubble.innerText = friendly.message || "（哎呀，信号断啦，稍等再试哦）";
+        }
+    } finally {
+        setChatGenerating(false);
     }
     clearImage(); scrollChatToBottom();
 }
@@ -787,7 +949,8 @@ async function sendMessage() {
  */
 async function getSummary() {
     if (!userSecretKey) return alert("请先点击右上角【解锁记忆】，验证身份后再生成情绪报告！");
-    if (fullChatHistory === "") return alert("先跟我说说话吧！");
+    syncFullChatHistoryFromTurns();
+    if (structuredChatHistory.length === 0) return alert("先跟我说说话吧！");
 
     if (!navigator.onLine) {
         const btn = document.getElementById('summaryBtn');
@@ -800,7 +963,7 @@ async function getSummary() {
     document.getElementById('chatBox').scrollTop = document.getElementById('chatBox').scrollHeight;
 
     try {
-        let rawSummary = (await fetchJsonWithTimeout('/summary', { chat_history: fullChatHistory }, TEXT_REQUEST_TIMEOUT_MS)).summary;
+        let rawSummary = (await fetchJsonWithTimeout('/summary', { chat_history: turnsToLegacyHistoryString(structuredChatHistory) }, TEXT_REQUEST_TIMEOUT_MS)).summary;
         const match = rawSummary.match(/\[(theme-[a-z]+)\]/);
         if (match) { document.body.className = match[1]; rawSummary = rawSummary.replace(match[0], '').trim(); }
 
@@ -813,12 +976,15 @@ async function getSummary() {
         if (existingIndex > -1) { longTermMemory[existingIndex].summary = rawSummary; } else { longTermMemory.push({ date: today, summary: rawSummary }); }
         if (longTermMemory.length > 7) longTermMemory.shift();
 
-        if (cryptoKeyObj) {
+        if (userSecretKey) {
             const encMem = await encryptData(JSON.stringify(longTermMemory));
             localStorage.setItem('treeHole_long_term_memory', encMem);
         }
     } catch (error) {
-        document.getElementById(loadingId).innerText = error.name === 'AbortError' ? "生成超时啦，稍后再试哦 🍂" : "生成失败，请重试。";
+        const friendly = humanizeApiError(error);
+        document.getElementById(loadingId).innerText = friendly.name === 'AbortError'
+            ? "生成超时啦，稍后再试哦 🍂"
+            : (friendly.message || "生成失败，请重试。");
     }
 }
 
@@ -1093,9 +1259,28 @@ function initPWA() {
     closeBtn.onclick = () => { pwaBanner.classList.remove('show'); localStorage.setItem('treeHole_pwa_dismissed', 'true'); };
 }
 
+function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch((err) => {
+        console.warn('[Treehouse] Service Worker registration failed:', err);
+    });
+}
+
+function bindSendButton() {
+    const btn = document.getElementById('sendMsgBtn');
+    if (!btn || btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+        if (isChatGenerating) stopActiveGeneration();
+        else sendMessage();
+    });
+}
+
 window.addEventListener('load', () => {
     hydrateStructuredChatHistory();
     initPWA();
     ensureTTSResumeUI();
     initDynamic3DEffectObserver();
+    registerServiceWorker();
+    bindSendButton();
 });

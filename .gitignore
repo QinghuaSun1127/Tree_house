@@ -23,6 +23,7 @@ Thumbs.db
 # 3. 环境变量与机密文件
 # =========================
 .env
+frontend/config.js
 *.pem
 *.key
 
