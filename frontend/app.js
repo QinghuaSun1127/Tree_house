@@ -297,16 +297,25 @@ function resumeTTSAfterInteraction() {
 // 🔐 2. 安全与零信任加密引擎 (AES-GCM)
 // ==========================================
 
+// 每台设备随机生成的 PBKDF2 盐（16 字节，Base64 存在本地）。
+// 旧版本使用固定盐，下面的 LEGACY_SALT 仅用于把旧数据迁移到随机盐。
+const LS_KEY_KDF_SALT = 'treeHole_kdf_salt';
+const LEGACY_SALT = "TreeHole_Salt_2026";
+
+const bytesToBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const base64ToBytes = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+
 /**
  * 使用 PBKDF2 算法对用户口令进行哈希加盐迭代，派生高强度 AES 主密钥
  * @param {string} password - 用户输入的口令
+ * @param {Uint8Array} salt - 随机盐（旧数据迁移时传入固定盐的字节）
  * @returns {Promise<CryptoKey>} 返回底层的 CryptoKey 对象
  */
-async function deriveKey(password) {
+async function deriveKey(password, salt) {
     const enc = new TextEncoder();
     const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveKey"]);
     return crypto.subtle.deriveKey(
-        { name: "PBKDF2", salt: enc.encode("TreeHole_Salt_2026"), iterations: 100000, hash: "SHA-256" },
+        { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
         keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
     );
 }
@@ -314,29 +323,60 @@ async function deriveKey(password) {
 /**
  * 端到端加密机制：将文本转为 AES-GCM 密文并打包 IV 向量
  * @param {string} text - 需要加密的明文
+ * @param {CryptoKey} [key] - 默认使用当前会话密钥
  * @returns {Promise<string|null>} 返回 Base64 编码的密文包
  */
-async function encryptData(text) {
-    if (!cryptoKeyObj) return null;
+async function encryptData(text, key = cryptoKeyObj) {
+    if (!key) return null;
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, cryptoKeyObj, new TextEncoder().encode(text));
+    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, new TextEncoder().encode(text));
     const exported = new Uint8Array(iv.length + ciphertext.byteLength);
     exported.set(iv, 0); exported.set(new Uint8Array(ciphertext), iv.length);
-    return btoa(String.fromCharCode(...exported));
+    return bytesToBase64(exported);
 }
 
 /**
  * 解密机制：拆解 Base64，提取 IV 并还原明文
  * @param {string} base64String - 本地读取的密文包
+ * @param {CryptoKey} [key] - 默认使用当前会话密钥
  * @returns {Promise<string|null>} 还原出的明文，失败返回 null
  */
-async function decryptData(base64String) {
-    if (!cryptoKeyObj) return null;
+async function decryptData(base64String, key = cryptoKeyObj) {
+    if (!key) return null;
     try {
-        const rawData = Uint8Array.from(atob(base64String), c => c.charCodeAt(0));
-        const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: rawData.slice(0, 12) }, cryptoKeyObj, rawData.slice(12));
+        const rawData = base64ToBytes(base64String);
+        const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: rawData.slice(0, 12) }, key, rawData.slice(12));
         return new TextDecoder().decode(decrypted);
     } catch (e) { return null; }
+}
+
+/**
+ * 根据口令得到会话密钥：
+ * - 已有随机盐：直接派生；
+ * - 只有旧版固定盐加密的数据：用旧盐验证口令，成功后换成随机盐并重新加密；
+ * - 全新用户：生成随机盐。
+ * @returns {Promise<CryptoKey|null>} 口令无法解密旧数据时返回 null
+ */
+async function unlockKey(password) {
+    const storedSalt = localStorage.getItem(LS_KEY_KDF_SALT);
+    if (storedSalt) return deriveKey(password, base64ToBytes(storedSalt));
+
+    const newSalt = crypto.getRandomValues(new Uint8Array(16));
+    const newKey = await deriveKey(password, newSalt);
+    const legacyHistory = localStorage.getItem('treeHole_encrypted_history');
+    const legacyMemory = localStorage.getItem('treeHole_long_term_memory');
+
+    if (legacyHistory || legacyMemory) {
+        const legacyKey = await deriveKey(password, new TextEncoder().encode(LEGACY_SALT));
+        const history = legacyHistory ? await decryptData(legacyHistory, legacyKey) : null;
+        const memory = legacyMemory ? await decryptData(legacyMemory, legacyKey) : null;
+        if ((legacyHistory && history === null) || (legacyMemory && memory === null)) return null;
+        if (history !== null) localStorage.setItem('treeHole_encrypted_history', await encryptData(history, newKey));
+        if (memory !== null) localStorage.setItem('treeHole_long_term_memory', await encryptData(memory, newKey));
+    }
+
+    localStorage.setItem(LS_KEY_KDF_SALT, bytesToBase64(newSalt));
+    return newKey;
 }
 
 /**
@@ -346,7 +386,9 @@ async function toggleSecurity() {
     const pwd = prompt("请输入隐私密码（用于解密历史记录，或加密保护接下来的对话）：");
     if (!pwd) return;
 
-    cryptoKeyObj = await deriveKey(pwd); userSecretKey = pwd;
+    cryptoKeyObj = await unlockKey(pwd);
+    if (!cryptoKeyObj) { alert("❌ 密码错误！"); userSecretKey = null; return; }
+    userSecretKey = pwd;
 
     const savedHistory = localStorage.getItem('treeHole_encrypted_history');
     if (savedHistory) {
@@ -414,6 +456,7 @@ function destroyMemory() {
 
     localStorage.removeItem('treeHole_encrypted_history');
     localStorage.removeItem('treeHole_long_term_memory');
+    localStorage.removeItem(LS_KEY_KDF_SALT);
     fullChatHistory = ""; structuredChatHistory = []; longTermMemory = [];
     sessionStorage.removeItem(SS_KEY_TREEHOUSE_SESSION);
     sessionStorage.removeItem(SS_KEY_TREEHOUSE_TURNS);
